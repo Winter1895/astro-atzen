@@ -1,0 +1,15 @@
+{
+  "name": "astro-atzen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Astro Atzen – Party-Spiel auf einem kleinen Planeten (Online-Multiplayer)",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/sim.test.mjs && node test/net.test.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
