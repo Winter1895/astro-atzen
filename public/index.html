@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Astro Atzen</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#090a20">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Astro Atzen">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<main id="ui">
+  <!-- Start -->
+  <section class="screen" id="scr-home">
+    <div class="panel">
+      <h1 class="logo"><span>ASTRO</span> <span>ATZEN</span></h1>
+      <button class="atze-chip" id="home-atze" aria-label="Atze bearbeiten">
+        <i class="dot" id="home-dot"></i>
+        <span class="who"><b id="home-name">Atze</b><small id="home-cls">Allrounder</small></span>
+        <span class="edit">Atzen bearbeiten</span>
+      </button>
+      <div class="stack" id="home-online">
+        <button class="btn primary" id="btn-create">Raum erstellen</button>
+        <div class="join-row">
+          <input id="inp-code" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Raumcode">
+          <button class="btn" id="btn-join">Beitreten</button>
+        </div>
+      </div>
+      <button class="btn ghost" id="btn-train">Training gegen Bots</button>
+      <p class="hint" id="home-hint"></p>
+    </div>
+  </section>
+
+  <!-- Atzen-Editor -->
+  <section class="screen" id="scr-editor" hidden>
+    <div class="panel scroll">
+      <header class="row">
+        <h2>Deine Atzen</h2>
+        <button class="btn small primary" id="ed-done">Fertig</button>
+      </header>
+      <div id="ed-list" class="chips"></div>
+      <label class="field"><span>Name</span><input id="ed-name" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false"></label>
+      <div class="field"><span>Typ</span><div id="ed-cls" class="opts cls"></div></div>
+      <div class="field"><span>Anzug + Linie</span><div id="ed-color" class="swatches"></div></div>
+      <div class="field"><span>Haut</span><div id="ed-skin" class="swatches"></div></div>
+      <div class="field"><span>Frisur</span><div id="ed-hair" class="opts"></div></div>
+      <div class="field"><span>Haarfarbe</span><div id="ed-hairColor" class="swatches"></div></div>
+      <div class="field"><span>Gesicht</span><div id="ed-face" class="opts"></div></div>
+      <div class="row">
+        <button class="btn small" id="ed-random">Zufall</button>
+        <button class="btn small danger" id="ed-delete">Atze löschen</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Lobby -->
+  <section class="screen" id="scr-lobby" hidden>
+    <div class="panel scroll">
+      <header class="row">
+        <div class="codebox"><small id="lob-label">Raumcode</small><div class="code" id="lob-code">----</div></div>
+        <div class="row tight">
+          <button class="btn small" id="lob-share">Link teilen</button>
+          <button class="btn small" id="lob-atze">Atze</button>
+          <button class="btn small ghost" id="lob-leave">Raus</button>
+        </div>
+      </header>
+      <div id="lob-players" class="players"></div>
+      <div id="lob-host" class="hostbox">
+        <div class="field inline"><span>Siegpunkte</span><div class="opts" id="lob-target"></div></div>
+        <div class="field inline"><span>Bots</span>
+          <div class="row tight">
+            <button class="btn small step" id="lob-botminus" aria-label="Bot entfernen">−</button>
+            <b id="lob-botn">0</b>
+            <button class="btn small step" id="lob-botplus" aria-label="Bot hinzufügen">+</button>
+            <div class="opts" id="lob-botlevel"></div>
+          </div>
+        </div>
+        <button class="btn primary" id="lob-start">Los geht's</button>
+      </div>
+      <p class="hint" id="lob-hint"></p>
+    </div>
+  </section>
+</main>
+
+<!-- Spiel-HUD -->
+<div id="hud" hidden>
+  <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
+  <div id="score"></div>
+  <button id="hud-menu" aria-label="Menü">II</button>
+  <div id="ping"></div>
+  <div id="feed"></div>
+  <div id="banner"><b></b><small></small></div>
+  <div id="spec" hidden></div>
+  <div id="fuel" hidden><i></i></div>
+  <button id="btn-dash" class="pad"><span>DASH</span></button>
+  <button id="btn-jet" class="pad"><span>JET</span></button>
+</div>
+
+<div id="pause" class="modal" hidden>
+  <div class="box">
+    <h2>Pause</h2>
+    <button class="btn primary" id="pa-resume">Weiter</button>
+    <button class="btn" id="pa-sound">Sound: an</button>
+    <button class="btn" id="pa-full">Vollbild</button>
+    <button class="btn" id="pa-lobby">Match abbrechen</button>
+    <button class="btn danger" id="pa-leave">Raum verlassen</button>
+  </div>
+</div>
+
+<div id="result" class="modal" hidden>
+  <div class="box">
+    <h2 id="res-title">Sieg!</h2>
+    <div id="res-list" class="players"></div>
+    <div class="row" id="res-host">
+      <button class="btn primary" id="res-again">Nochmal</button>
+      <button class="btn" id="res-lobby">Zur Lobby</button>
+    </div>
+    <p class="hint" id="res-wait">Warte auf den Host …</p>
+    <button class="btn small ghost" id="res-leave">Raum verlassen</button>
+  </div>
+</div>
+
+<div id="rotate" hidden>
+  <div class="phone"></div>
+  <b>Dreh dein Handy quer</b>
+  <button class="btn small ghost" id="rot-skip">Trotzdem hochkant spielen</button>
+</div>
+<div id="busy" hidden><span id="busy-text">Verbinde …</span><button class="btn small ghost" id="busy-cancel">Abbrechen</button></div>
+<div id="toast"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
