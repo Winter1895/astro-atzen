@@ -10,7 +10,7 @@ export class Input {
     this.jetLatch = 0; this.dashLatch = 0;
     this.keys = new Set();
     this.joyId = null; this.ox = 0; this.oy = 0;
-    this.radius = 56;
+    this.radius = 44; // kurzer Weg bis Vollausschlag = direkteres Lenken
     this.out = { s: 0, j: false, d: false };
     this.enabled = false;
 
@@ -69,9 +69,9 @@ export class Input {
     const l = Math.hypot(dx, dy);
     if (l > 1) { dx /= l; dy /= l; }
     this.el.knob.style.transform = `translate(${dx * this.radius}px, ${dy * this.radius}px)`;
-    // kleine Totzone, danach leicht progressiv: feines Lenken in der Mitte, voller Einschlag am Rand
+    // kleine Totzone, danach linear; Vollausschlag schon kurz vor dem Rand
     const a = Math.abs(dx);
-    this.steer = a < 0.1 ? 0 : Math.sign(dx) * Math.pow((a - 0.1) / 0.9, 1.25);
+    this.steer = a < 0.08 ? 0 : Math.sign(dx) * Math.min(1, (a - 0.08) / 0.8);
   }
 
   // einmal pro 60-Hz-Tick aufrufen

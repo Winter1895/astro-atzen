@@ -15,17 +15,19 @@ function playRound(n, level) {
   return { t: r.tick * DT, self, other, winner: r.winner };
 }
 
-// Sprungkurve
-{
+// Jetpack: ein kurzer Tipper muss bis ganz auf Flughöhe gehen, bei jedem Typ
+for (const cls of CLASSES) {
   const s = newKin(); let maxAlt = 0, air = 0;
-  stepKin(s, { s: 0, j: true, d: false }, CLASSES[0], 12);
-  while (s.alt > 0) { stepKin(s, { s: 0, j: false, d: false }, CLASSES[0], 12); maxAlt = Math.max(maxAlt, s.alt); air++; }
-  console.log(`Tipp-Sprung: Höhe ${maxAlt.toFixed(2)}, Luftzeit ${(air * DT).toFixed(2)}s, Weite ${(air * DT * C.SPEED).toFixed(1)}`);
-  const h = newKin(); let hmax = 0, hair = 0;
-  stepKin(h, { s: 0, j: true, d: false }, CLASSES[0], 12);
-  while (h.alt > 0) { stepKin(h, { s: 0, j: true, d: false }, CLASSES[0], 12); hmax = Math.max(hmax, h.alt); hair++; }
-  console.log(`Halten: Höhe ${hmax.toFixed(2)}, Luftzeit ${(hair * DT).toFixed(2)}s`);
-  if (!(maxAlt > C.RIB_HI + 0.2)) throw new Error('Sprung zu niedrig');
+  stepKin(s, { s: 0, j: true, d: false }, cls, 12);
+  while (s.alt > 0 || s.up) { stepKin(s, { s: 0, j: false, d: false }, cls, 12); maxAlt = Math.max(maxAlt, s.alt); air++; }
+  const h = newKin(); let hair = 0;
+  stepKin(h, { s: 0, j: true, d: false }, cls, 12);
+  while (h.alt > 0 || h.up) { stepKin(h, { s: 0, j: true, d: false }, cls, 12); hair++; }
+  let regen = 0; while (h.fuel < 1) { stepKin(h, { s: 0, j: false, d: false }, cls, 12); regen++; }
+  console.log(`${cls.name}: Tipper -> Höhe ${maxAlt.toFixed(2)}, ${(air * DT).toFixed(2)}s in der Luft | halten: ${(hair * DT).toFixed(2)}s | Tank wieder voll nach ${(regen * DT).toFixed(1)}s | Tempo ${(C.SPEED * cls.speed).toFixed(1)}, Wendekreis ${(C.SPEED * cls.speed / (C.TURN * cls.turn)).toFixed(1)}`);
+  if (Math.abs(maxAlt - C.FLY_H) > 1e-6) throw new Error('Tipper erreicht die Flughöhe nicht');
+  // Breite des Linienstücks auf voller Flughöhe nach einem kurzen Tipper
+  { const t = newKin(); let top = 0; stepKin(t, { s: 0, j: true, d: false }, cls, 12); while (t.alt > 0 || t.up) { stepKin(t, { s: 0, j: false, d: false }, cls, 12); if (t.alt >= C.FLY_H) top++; } const w = top * DT * C.SPEED * cls.speed * cls.airSpeed; console.log(`   -> Durchgang unter der Flug-Linie: ${w.toFixed(1)} Einheiten breit (Atze braucht ${(2 * (C.BODY_R + C.TUBE_R)).toFixed(1)})`); if (w < 2 * (C.BODY_R + C.TUBE_R) * 1.8) throw new Error('Durchgang zu schmal'); }
 }
 
 const t0 = performance.now();

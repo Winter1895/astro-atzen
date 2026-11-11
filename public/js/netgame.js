@@ -2,9 +2,9 @@
 // Der eigene Atze wird lokal vorhergesagt (fühlt sich sofort an) und mit dem Server abgeglichen,
 // die anderen werden zwischen zwei Server-Zuständen weich interpoliert.
 
-import { CLASSES, stepKin, unpackKin, newKin, DT, TICK_RATE } from '../shared/sim.js';
+import { CLASSES, C, stepKin, unpackKin, newKin, DT, TICK_RATE } from '../shared/sim.js';
 
-const INTERP = 6; // Ticks, um die andere Atzen verzögert dargestellt werden (100 ms)
+const INTERP = 4; // Ticks, um die andere Atzen verzögert dargestellt werden (ca. 67 ms)
 
 function newTrail() { return { x: [], y: [], z: [], a: [], k: [], tail: 0, head: 0 }; }
 
@@ -48,6 +48,7 @@ export class ClientGame {
     this.pend = [];
     this.path = []; // vorhergesagte eigene Positionen, die der Server noch nicht bestätigt hat
     this.seq = 0;
+    this.lastSteer = 0;
     this.ex = 0; this.ey = 0; this.ez = 0; // Korrektur-Versatz, der weich ausgeblendet wird
     this.corr = 0; // letzte Korrekturgröße (für Tests / Debug)
     // D = wie viele Eingaben der Server bei Tick k schon verarbeitet hat (a - k), geglättet.
@@ -88,7 +89,7 @@ export class ClientGame {
         const ox = this.ps.px, oy = this.ps.py, oz = this.ps.pz;
         unpackKin(m.me, this.ps);
         const d = m.a - m.k;
-        if (this.D === null || Math.abs(d - this.D) >= 3) { this.D = d; this.dRun = 0; }
+        if (this.D === null || m.a < 40 || Math.abs(d - this.D) >= 3) { this.D = d; this.dRun = 0; } // in den ersten Momenten der Runde direkt übernehmen
         else if (d !== this.D) {
           const dir = Math.sign(d - this.D);
           if (dir === this.dDir) { if (++this.dRun >= 10) { this.D += dir; this.dRun = 0; } }
@@ -117,6 +118,7 @@ export class ClientGame {
   tick(inp) {
     if (!this.live || !this.me || !this.me.alive) return;
     const rec = { q: ++this.seq, s: Math.round(inp.s * 100) / 100, j: inp.j ? 1 : 0, d: inp.d ? 1 : 0 };
+    this.lastSteer = rec.s;
     this.pend.push(rec);
     if (this.pend.length > 150) this.pend.shift();
     stepKin(this.ps, rec, this.me.cls, this.R);
@@ -130,8 +132,10 @@ export class ClientGame {
     return this.tickOff === null ? this.k : nowMs * (TICK_RATE / 1000) + this.tickOff - INTERP;
   }
 
-  // Darstellungszustand aller Atzen für diesen Frame berechnen (liegt danach in pl.out)
-  sample(nowMs, dt) {
+  // Darstellungszustand aller Atzen für diesen Frame berechnen (liegt danach in pl.out).
+  // frac = Sekunden seit dem letzten 60-Hz-Schritt: der eigene Atze wird um dieses Stück weitergerechnet,
+  // sonst ruckelt er, weil Bildschirm-Frames und Spiel-Ticks nie exakt im Gleichschritt laufen.
+  sample(nowMs, dt, frac = 0) {
     const rt = this.renderTick(nowMs);
     const f = Math.exp(-12 * dt);
     this.ex *= f; this.ey *= f; this.ez *= f;
@@ -139,10 +143,21 @@ export class ClientGame {
       const o = pl.out;
       o.alive = pl.alive;
       if (pl === this.me && this.live && pl.alive) {
-        const s = this.ps;
-        let x = s.px + this.ex, y = s.py + this.ey, z = s.pz + this.ez;
+        const s = this.ps, k = pl.cls;
+        // Teil-Schritt: erst lenken, dann vorwärts
+        let hx = s.hx, hy = s.hy, hz = s.hz;
+        const w = -this.lastSteer * C.TURN * k.turn * frac;
+        if (w !== 0) {
+          const cw = Math.cos(w), sw = Math.sin(w);
+          const cx = s.py * hz - s.pz * hy, cy = s.pz * hx - s.px * hz, cz = s.px * hy - s.py * hx;
+          hx = hx * cw + cx * sw; hy = hy * cw + cy * sw; hz = hz * cw + cz * sw;
+        }
+        const a = (C.SPEED * k.speed * (s.alt > 0 ? k.airSpeed : 1) * (s.da > 0 ? C.DASH_MULT : 1) * frac) / this.R, ca = Math.cos(a), sa = Math.sin(a);
+        let x = s.px * ca + hx * sa + this.ex, y = s.py * ca + hy * sa + this.ey, z = s.pz * ca + hz * sa + this.ez;
         const l = 1 / Math.hypot(x, y, z);
-        o.x = x * l; o.y = y * l; o.z = z * l; o.hx = s.hx; o.hy = s.hy; o.hz = s.hz; o.alt = s.alt;
+        o.x = x * l; o.y = y * l; o.z = z * l;
+        o.hx = hx * ca - s.px * sa; o.hy = hy * ca - s.py * sa; o.hz = hz * ca - s.pz * sa;
+        o.alt = s.up ? Math.min(C.FLY_H, s.alt + C.UP_V * frac) : Math.max(0, s.alt - C.DOWN_V * frac);
         o.fl = 1 | (s.th ? 2 : 0) | (s.da > 0 ? 4 : 0);
         o.rt = Infinity;
         continue;

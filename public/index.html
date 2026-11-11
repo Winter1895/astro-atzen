@@ -28,13 +28,19 @@
         <span class="edit">Atzen bearbeiten</span>
       </button>
       <div class="stack" id="home-online">
-        <button class="btn primary" id="btn-create">Raum erstellen</button>
+        <div class="join-row">
+          <button class="btn primary" id="btn-create" style="flex:1">Server-Raum</button>
+          <button class="btn primary" id="btn-host" style="flex:1">WLAN-Raum hosten</button>
+        </div>
         <div class="join-row">
           <input id="inp-code" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Raumcode">
           <button class="btn" id="btn-join">Beitreten</button>
         </div>
       </div>
-      <button class="btn ghost" id="btn-train">Training gegen Bots</button>
+      <div class="join-row">
+        <button class="btn ghost" id="btn-train" style="flex:1">Training gegen Bots</button>
+        <button class="btn ghost small" id="home-music">Musik: an</button>
+      </div>
       <p class="hint" id="home-hint"></p>
     </div>
   </section>
@@ -48,12 +54,18 @@
       </header>
       <div id="ed-list" class="chips"></div>
       <label class="field"><span>Name</span><input id="ed-name" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false"></label>
-      <div class="field"><span>Typ</span><div id="ed-cls" class="opts cls"></div></div>
-      <div class="field"><span>Anzug + Linie</span><div id="ed-color" class="swatches"></div></div>
+      <div class="field"><span>Charakter</span><div id="ed-cls" class="opts cls"></div></div>
+      <div class="field"><span>Hauptfarbe + Linie</span><div id="ed-color" class="swatches"></div></div>
+      <div class="field"><span>Zweitfarbe</span><div id="ed-color2" class="swatches"></div></div>
+      <div class="field"><span>Outfit</span><div id="ed-outfit" class="opts"></div></div>
+      <div class="field"><span>Muster</span><div id="ed-pattern" class="opts"></div></div>
       <div class="field"><span>Haut</span><div id="ed-skin" class="swatches"></div></div>
       <div class="field"><span>Frisur</span><div id="ed-hair" class="opts"></div></div>
       <div class="field"><span>Haarfarbe</span><div id="ed-hairColor" class="swatches"></div></div>
-      <div class="field"><span>Gesicht</span><div id="ed-face" class="opts"></div></div>
+      <div class="field"><span>Kopfbedeckung</span><div id="ed-hat" class="opts"></div></div>
+      <div class="field"><span>Brille</span><div id="ed-glasses" class="opts"></div></div>
+      <div class="field"><span>Bart</span><div id="ed-beard" class="opts"></div></div>
+      <div class="field"><span>Extras</span><div id="ed-acc" class="opts"></div></div>
       <div class="row">
         <button class="btn small" id="ed-random">Zufall</button>
         <button class="btn small danger" id="ed-delete">Atze löschen</button>
@@ -109,6 +121,7 @@
     <h2>Pause</h2>
     <button class="btn primary" id="pa-resume">Weiter</button>
     <button class="btn" id="pa-sound">Sound: an</button>
+    <button class="btn" id="pa-music">Musik: an</button>
     <button class="btn" id="pa-full">Vollbild</button>
     <button class="btn" id="pa-lobby">Match abbrechen</button>
     <button class="btn danger" id="pa-leave">Raum verlassen</button>

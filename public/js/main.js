@@ -3,11 +3,11 @@
 import { View } from './render.js';
 import { Input } from './input.js';
 import { ClientGame } from './netgame.js';
-import { WSConn, LocalConn } from './net.js';
+import { WSConn, LocalConn, HostConn, PeerConn } from './net.js';
 import { CLASSES, C, DT, TICK_RATE, BOT_LEVEL_NAMES } from '../shared/sim.js';
-import { cleanAtze, randomAtze, MAX_PLAYERS } from '../shared/room.js';
-import { SUITS, SKINS, HAIR_COLORS, HAIRS, FACES, hex } from './atze.js';
-import { sfx, unlockAudio, setSound, jetSound } from './audio.js';
+import { cleanAtze, randomAtze, MAX_PLAYERS, PRESETS } from '../shared/room.js';
+import { SUITS, COLORS2, SKINS, HAIR_COLORS, HAIRS, BEARDS, GLASSES, HATS, OUTFITS, PATTERNS, EXTRAS, hex } from './atze.js';
+import { sfx, unlockAudio, setSound, jetSound, setMusic, musicMode, audioPause } from './audio.js';
 
 const OFFLINE = !!window.ASTRO_OFFLINE; // Einzeldatei-Testversion ohne Server
 const $ = (id) => document.getElementById(id);
@@ -17,11 +17,21 @@ const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').match
 // ---------- Gespeicherte Atzen ----------
 const KEY = 'astroatzen.v1';
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+// Atzen aus der ersten Version (ein Feld "face", Cap als Frisur) auf die neuen Felder umziehen
+function migrate(a) {
+  if (!a || a.face === undefined) return a;
+  const b = { ...a, outfit: 0, pattern: 0, color2: 9, hat: 0, acc: 0, helmet: 1 };
+  b.glasses = a.face === 1 || a.face === 4 ? 1 : 0;
+  b.beard = a.face === 2 || a.face === 4 ? 1 : a.face === 3 ? 2 : 0;
+  if (a.hair === 6) { b.hair = 1; b.hat = 1; } else if (a.hair === 7) b.hair = 6;
+  delete b.face;
+  return b;
+}
 function loadStore() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
     if (s && Array.isArray(s.atzen) && s.atzen.length) {
-      s.atzen = s.atzen.slice(0, 12).map(cleanAtze);
+      s.atzen = s.atzen.slice(0, 12).map((a) => cleanAtze(migrate(a)));
       s.active = Math.min(Math.max(0, s.active | 0), s.atzen.length - 1);
       if (!s.cid) s.cid = uid();
       return s;
@@ -51,6 +61,7 @@ let joinTimer = 0;
 const hud = { cd: null, wasLive: false, alt: 0, da: 0, sig: '', fuel: -1, dash: -1, bannerT: 0, pingT: 0, specName: '' };
 
 setSound(store.sound !== false);
+setMusic(store.music !== false);
 
 // ---------- kleine Helfer ----------
 let toastT = 0;
@@ -100,6 +111,7 @@ function show(name) {
   screen = name;
   for (const s of ['home', 'editor', 'lobby']) $('scr-' + s).hidden = s !== name;
   const inGame = name === 'game';
+  musicMode(inGame ? 'game' : 'menu');
   $('hud').hidden = !inGame;
   input.enabled = inGame;
   if (!inGame) {
@@ -119,6 +131,7 @@ function renderHome() {
   $('home-cls').textContent = CLASSES[a.cls].name;
   $('home-dot').style.background = hex(SUITS[a.color]);
   $('home-online').hidden = OFFLINE;
+  $('home-music').textContent = `Musik: ${store.music !== false ? 'an' : 'aus'}`;
   $('home-hint').textContent = OFFLINE
     ? 'Testversion: hier läuft nur das Training. Online mit Freunden geht über die Server-Version.'
     : coarse ? 'Tipp: Über „Zum Home-Bildschirm" läuft das Spiel im Vollbild wie eine App.' : 'Am PC: A/D oder Pfeiltasten lenken, Leertaste = Jetpack, Shift = Dash.';
@@ -135,19 +148,46 @@ function optButtons(el, items, key, render) {
     el.appendChild(b);
   });
 }
+const ED_KEYS = ['cls', 'color', 'color2', 'outfit', 'pattern', 'skin', 'hair', 'hairColor', 'hat', 'glasses', 'beard'];
 function buildEditor() {
-  const bar = (label, v) => `<span>${label}</span><div class="bar"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></div>`;
-  optButtons($('ed-cls'), CLASSES, 'cls', (b, c) => {
+  const bar = (label, v) => `<span>${label}</span><div class="bar"><i style="width:${Math.round(Math.max(0.06, Math.min(1, v)) * 100)}%"></i></div>`;
+  // Charakter wählen = Körperbau + Werte + Standard-Look dieses Charakters (Name und Linienfarbe bleiben)
+  const cls = $('ed-cls');
+  CLASSES.forEach((c, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
     b.className = 'opt';
-    b.innerHTML = `${esc(c.name)}<small>${esc(c.desc)}</small><div class="bars">${bar('Tempo', (c.speed - 0.8) / 0.4)}${bar('Wendig', (c.turn - 0.7) / 0.6)}${bar('Jetpack', c.jet / 1.8)}</div>`;
+    b.innerHTML = `${esc(c.name)}<small>${esc(c.desc)}</small><div class="bars">${bar('Tempo', (c.speed - 0.7) / 0.65)}${bar('Wendig', (c.turn - 0.6) / 0.95)}${bar('Tank', c.jet / 2.2)}${bar('Laden', c.regen / 2)}${bar('Dash', 0.4 / c.dashCd)}</div>${c.special ? `<em>★ ${esc(c.special)}</em>` : ''}`;
+    b.addEventListener('click', () => {
+      const a = active();
+      if (a.cls !== i) Object.assign(a, PRESETS[i], { cls: i });
+      save(); sfx.click(); renderEditor();
+    });
+    cls.appendChild(b);
   });
-  const sw = (list) => (b, col, i) => { b.className = 'sw'; b.style.background = hex(col); b.setAttribute('aria-label', `Farbe ${i + 1}`); };
-  optButtons($('ed-color'), SUITS, 'color', sw());
-  optButtons($('ed-skin'), SKINS, 'skin', sw());
-  optButtons($('ed-hairColor'), HAIR_COLORS, 'hairColor', sw());
+  const sw = (b, col, i) => { b.className = 'sw'; b.style.background = hex(col); b.setAttribute('aria-label', `Farbe ${i + 1}`); };
   const txt = (b, t) => { b.className = 'opt'; b.textContent = t; };
+  optButtons($('ed-color'), SUITS, 'color', sw);
+  optButtons($('ed-color2'), COLORS2, 'color2', sw);
+  optButtons($('ed-skin'), SKINS, 'skin', sw);
+  optButtons($('ed-hairColor'), HAIR_COLORS, 'hairColor', sw);
+  optButtons($('ed-outfit'), OUTFITS, 'outfit', txt);
+  optButtons($('ed-pattern'), PATTERNS, 'pattern', txt);
   optButtons($('ed-hair'), HAIRS, 'hair', txt);
-  optButtons($('ed-face'), FACES, 'face', txt);
+  optButtons($('ed-hat'), HATS, 'hat', txt);
+  optButtons($('ed-glasses'), GLASSES, 'glasses', txt);
+  optButtons($('ed-beard'), BEARDS, 'beard', txt);
+  // Extras lassen sich einzeln an- und ausschalten
+  const ex = $('ed-acc');
+  const toggle = (label, get, flip) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'opt'; b.textContent = label;
+    b._on = get;
+    b.addEventListener('click', () => { flip(active()); save(); sfx.click(); renderEditor(); });
+    ex.appendChild(b);
+  };
+  for (const [label, bit] of EXTRAS) toggle(label, (a) => !!(a.acc & bit), (a) => { a.acc ^= bit; });
+  toggle('Helm', (a) => !!a.helmet, (a) => { a.helmet = a.helmet ? 0 : 1; });
 }
 function renderEditor() {
   const a = active();
@@ -175,9 +215,10 @@ function renderEditor() {
     list.appendChild(b);
   }
   if (document.activeElement !== $('ed-name')) $('ed-name').value = a.name;
-  for (const key of ['cls', 'color', 'skin', 'hair', 'hairColor', 'face']) {
+  for (const key of ED_KEYS) {
     [...$('ed-' + key).children].forEach((b, i) => b.classList.toggle('on', i === a[key]));
   }
+  [...$('ed-acc').children].forEach((b) => b.classList.toggle('on', b._on(a)));
   $('ed-delete').disabled = store.atzen.length < 2;
   view.setMenuAtze(a);
 }
@@ -219,7 +260,7 @@ function renderLobby() {
   if (!lobby) return;
   const local = conn && conn.local;
   const isHost = lobby.host === myPid;
-  $('lob-label').textContent = local ? 'Modus' : 'Raumcode';
+  $('lob-label').textContent = local ? 'Modus' : conn && conn.p2p ? (isHost ? 'WLAN-Raum · du hostest' : 'WLAN-Raum') : 'Raumcode';
   $('lob-code').textContent = local ? 'TRAINING' : lobby.code;
   $('lob-code').style.fontSize = local ? '22px' : '';
   $('lob-share').hidden = local;
@@ -235,7 +276,8 @@ function renderLobby() {
   $('lob-start').disabled = n < 2;
   $('lob-hint').textContent = !isHost ? `Warte, bis ${nameOf(lobby.host)} startet …`
     : n < 2 ? 'Mindestens 2 Atzen: Schick deinen Freunden den Link oder füg Bots hinzu.'
-      : local ? '' : 'Freunde treten mit dem Code oder dem Link bei (bis zu 8 Atzen).';
+      : local ? '' : conn && conn.p2p ? 'Du hostest: Lass das Spiel offen, sonst steht es für alle. Beitreten geht mit dem Code wie immer.'
+        : 'Freunde treten mit dem Code oder dem Link bei (bis zu 8 Atzen).';
 }
 
 function showResult() {
@@ -272,6 +314,20 @@ function connect(kind, code) {
   };
   if (kind === 'local') {
     conn = new LocalConn(handlers);
+  } else if (kind === 'host') {
+    // WLAN-Raum: beim Server nur einen Code holen, der Raum selbst läuft dann auf diesem Gerät
+    if (typeof RTCPeerConnection === 'undefined') { toast('Dieser Browser kann keine Direktverbindungen. Nimm den Server-Raum.', 5000); show('home'); return; }
+    const sig = new WSConn({
+      open: () => sig.send({ t: 'p2p-host' }),
+      msg: (m) => {
+        if (m.t === 'p2p-hosted') { conn = new HostConn(handlers, sig, m.code); handlers.open(); }
+        else if (m.t === 'err') onMsg(m);
+      },
+      close: onClose,
+    });
+    conn = sig;
+    busy('Öffne WLAN-Raum …');
+    joinTimer = setTimeout(() => { if (!myPid) { leave(); toast('Server nicht erreichbar. Evtl. wacht er gerade auf – probier es in einer Minute nochmal.', 5000); } }, 12000);
   } else {
     conn = new WSConn(handlers);
     busy(kind === 'create' ? 'Erstelle Raum …' : 'Trete bei …');
@@ -318,6 +374,24 @@ function onMsg(m) {
       leave();
       toast(m.msg || 'Das hat nicht geklappt.');
       return;
+    case 'bye':
+      leave();
+      toast('Der Host hat den Raum geschlossen.', 4000);
+      return;
+    case 'p2p': {
+      // Der Code gehört zu einem WLAN-Raum: Direktverbindung zum Host aufbauen
+      clearTimeout(joinTimer);
+      if (typeof RTCPeerConnection === 'undefined') { leave(); toast('Dieser Browser kann keine Direktverbindungen.'); return; }
+      busy('Verbinde direkt mit dem Host …');
+      const sig = conn;
+      conn = new PeerConn({
+        open: () => conn.send({ t: 'join', room: m.code, cid: store.cid, atze: active() }),
+        msg: onMsg,
+        close: onClose,
+        fail: () => { leave(); toast('Direktverbindung zum Host klappt in diesem Netz nicht. Nehmt einen Server-Raum.', 6000); },
+      }, sig);
+      return;
+    }
     case 'lobby': {
       lobby = m;
       roster = new Map(m.players.map((p) => [p.pid, p]));
@@ -348,7 +422,7 @@ function onMsg(m) {
       return;
     }
     case 'pong':
-      $('ping').textContent = conn && conn.local ? '' : `${Math.round(performance.now() - m.c)} ms`;
+      $('ping').textContent = conn && conn.localTick ? '' : `${Math.round(performance.now() - m.c)} ms`;
       return;
     default:
   }
@@ -403,11 +477,11 @@ function hudUpdate(now) {
     const s = game.ps;
     const fuel = Math.round(s.fuel * 50) * 2;
     if (fuel !== hud.fuel) { hud.fuel = fuel; $('btn-jet').style.setProperty('--v', fuel); }
-    const dash = Math.round((1 - s.dc / C.DASH_CD) * 50) * 2;
+    const dash = Math.round((1 - s.dc / (C.DASH_CD * me.cls.dashCd)) * 50) * 2;
     if (dash !== hud.dash) { hud.dash = dash; $('btn-dash').style.setProperty('--v', dash); }
-    if (s.alt > 0 && hud.alt <= 0) sfx.jump();
+    if (s.up && !hud.alt) sfx.jump();
     if (s.da > 0 && hud.da <= 0) sfx.dash();
-    hud.alt = s.alt; hud.da = s.da;
+    hud.alt = s.up; hud.da = s.da;
     jetSound(!!s.th);
   } else jetSound(false);
 
@@ -451,10 +525,10 @@ function frame() {
     if (++n > 6) { acc = 0; break; }
     const inp = input.sample();
     if (game) game.tick(inp);
-    if (conn && conn.local) conn.localTick();
+    if (conn && conn.localTick) conn.localTick();
   }
   if (game && screen === 'game') hudUpdate(now);
-  view.frame(now, dt, game ? followPid(now) : 0);
+  view.frame(now, dt, game ? followPid(now) : 0, acc);
   if (screen === 'game') gaugeUpdate();
 }
 
@@ -481,6 +555,7 @@ function wire() {
   const click = (id, fn) => $(id).addEventListener('click', (e) => { unlockAudio(); sfx.click(); fn(e); });
   click('home-atze', () => { editorBack = 'home'; show('editor'); });
   click('btn-create', () => { fullscreen(); connect('create'); });
+  click('btn-host', () => { fullscreen(); connect('host'); });
   click('btn-join', () => {
     const code = $('inp-code').value.toUpperCase().replace(/[^A-Z]/g, '');
     if (code.length !== 4) { toast('Der Raumcode hat 4 Buchstaben.'); $('inp-code').focus(); return; }
@@ -492,7 +567,13 @@ function wire() {
 
   $('ed-name').addEventListener('input', () => { active().name = cleanAtze({ name: $('ed-name').value }).name; save(); renderEditor(); });
   $('ed-name').addEventListener('blur', () => { $('ed-name').value = active().name; });
-  click('ed-random', () => { const a = active(); Object.assign(a, randomAtze(a.name), { name: a.name }); save(); renderEditor(); });
+  click('ed-random', () => {
+    // komplett würfeln: Charakter bleibt, alles andere wird neu gemischt
+    const a = active(), r = (n) => Math.floor(Math.random() * n);
+    Object.assign(a, cleanAtze({ name: a.name, cls: a.cls, color: r(SUITS.length), color2: r(COLORS2.length), skin: r(SKINS.length), hair: r(HAIRS.length), hairColor: r(HAIR_COLORS.length),
+      beard: r(BEARDS.length), glasses: r(GLASSES.length), hat: Math.random() < 0.5 ? 0 : r(HATS.length), outfit: r(OUTFITS.length), pattern: r(PATTERNS.length), acc: r(32) & r(32), helmet: 1 }));
+    save(); renderEditor();
+  });
   click('ed-delete', () => {
     if (store.atzen.length < 2) return;
     store.atzen.splice(store.active, 1);
@@ -520,10 +601,14 @@ function wire() {
   click('hud-menu', () => {
     $('pa-lobby').hidden = !(lobby && lobby.host === myPid);
     $('pa-sound').textContent = `Sound: ${store.sound !== false ? 'an' : 'aus'}`;
+    $('pa-music').textContent = `Musik: ${store.music !== false ? 'an' : 'aus'}`;
     $('pause').hidden = false;
   });
   click('pa-resume', () => { $('pause').hidden = true; });
   click('pa-sound', () => { store.sound = store.sound === false; save(); setSound(store.sound); $('pa-sound').textContent = `Sound: ${store.sound ? 'an' : 'aus'}`; });
+  const toggleMusic = () => { store.music = store.music === false; save(); setMusic(store.music); const t = `Musik: ${store.music ? 'an' : 'aus'}`; $('pa-music').textContent = t; $('home-music').textContent = t; };
+  click('pa-music', toggleMusic);
+  click('home-music', toggleMusic);
   click('pa-full', () => { fullscreen(true); $('pause').hidden = true; });
   click('pa-lobby', () => { conn && conn.send({ t: 'lobby' }); $('pause').hidden = true; });
   click('pa-leave', () => leave());
@@ -543,8 +628,8 @@ function wire() {
   window.addEventListener('resize', () => { view.resize(); checkRotate(); });
   window.addEventListener('orientationchange', () => setTimeout(() => { view.resize(); checkRotate(); }, 250));
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { last = performance.now(); acc = 0; if (game) wakeLock(); }
-    else jetSound(false);
+    if (document.visibilityState === 'visible') { last = performance.now(); acc = 0; audioPause(false); if (game) wakeLock(); }
+    else { jetSound(false); audioPause(true); }
   });
 }
 
@@ -566,4 +651,4 @@ checkRotate();
 requestAnimationFrame(frame);
 
 // für Tests / Debugging in der Konsole
-window.__astro = { get game() { return game; }, get lobby() { return lobby; }, view, connect, store };
+window.__astro = { get game() { return game; }, get lobby() { return lobby; }, get conn() { return conn; }, view, connect, store };

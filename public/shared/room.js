@@ -6,8 +6,25 @@ import { Round, Bot, SNAP_EVERY, TICK_RATE, packKin, planetRadius, CLASSES } fro
 export const MAX_PLAYERS = 8;
 export const N_COLORS = 10;
 export const N_THEMES = 5;
-export const LIMITS = { skin: 6, hair: 8, hairColor: 8, face: 5 };
+// Aussehen: jedes Feld ist eine Zahl von 0 bis (Limit - 1). acc ist eine Bitmaske der Extras.
+export const LIMITS = { color2: 12, skin: 6, hair: 13, hairColor: 8, beard: 5, glasses: 5, hat: 7, outfit: 7, pattern: 9, acc: 32, helmet: 2 };
+export const LOOK_KEYS = Object.keys(LIMITS);
+export const ACC = { uhr: 1, kette: 2, bauchtasche: 4, kopfhoerer: 8, dose: 16 };
 const BOT_NAMES = ['Kalle', 'Mäcces', 'Digga', 'Brudi', 'Keule', 'Günni', 'Maschine', 'Ronny', 'Uschi', 'Atzinger', 'Schorsch', 'Babsi'];
+
+// Standard-Look jedes Charakters (Reihenfolge wie CLASSES). Danach kann man alles umstellen.
+export const PRESETS = [
+  { outfit: 0, pattern: 0, color2: 9, hair: 1, hairColor: 1, beard: 0, glasses: 0, hat: 0, acc: 0, helmet: 1 },   // Allrounder: klassischer Raumanzug
+  { outfit: 2, pattern: 8, color2: 9, hair: 3, hairColor: 0, beard: 0, glasses: 2, hat: 0, acc: 0, helmet: 1 },   // Raser: Trikot, schnelle Brille, Iro
+  { outfit: 1, pattern: 5, color2: 9, hair: 1, hairColor: 2, beard: 0, glasses: 0, hat: 2, acc: 4, helmet: 1 },   // Wiesel: Trainingsanzug, Cap rückwärts, Bauchtasche
+  { outfit: 4, pattern: 0, color2: 1, hair: 9, hairColor: 1, beard: 1, glasses: 4, hat: 0, acc: 8, helmet: 1 },   // Flieger: Bomberjacke, Pilotenbrille, Schnäuzer, Kopfhörer
+  { outfit: 3, pattern: 0, color2: 11, hair: 0, hairColor: 0, beard: 2, glasses: 1, hat: 0, acc: 3, helmet: 1 },  // Kante: Feinripp, Goldkette, goldene Uhr
+  { outfit: 6, pattern: 0, color2: 9, hair: 9, hairColor: 4, beard: 0, glasses: 3, hat: 0, acc: 0, helmet: 1 },   // Geist: Anzug, Scheitel, Nerdbrille
+  { outfit: 2, pattern: 1, color2: 10, hair: 10, hairColor: 1, beard: 4, glasses: 0, hat: 5, acc: 0, helmet: 1 }, // Rammbock: Ringeltrikot, Bürste, Stirnband
+  { outfit: 5, pattern: 0, color2: 2, hair: 11, hairColor: 4, beard: 1, glasses: 1, hat: 3, acc: 16, helmet: 1 }, // Brummer: Hawaiihemd, Fischerhut, Dose
+  { outfit: 0, pattern: 6, color2: 0, hair: 12, hairColor: 2, beard: 0, glasses: 2, hat: 0, acc: 0, helmet: 1 },  // Segler: Flammen-Raumanzug, Stacheln, schnelle Brille
+  { outfit: 1, pattern: 2, color2: 9, hair: 7, hairColor: 3, beard: 3, glasses: 0, hat: 4, acc: 0, helmet: 1 },   // Hering: Streifen-Trainingsanzug, Zopf, Mütze
+];
 
 const int = (v, max, def = 0) => (Number.isInteger(v) && v >= 0 && v < max ? v : def);
 const r5 = (v) => Math.round(v * 1e5) / 1e5;
@@ -17,20 +34,25 @@ export function cleanAtze(a) {
   a = a && typeof a === 'object' ? a : {};
   let name = typeof a.name === 'string' ? a.name.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 12) : '';
   if (!name) name = 'Atze';
-  return {
-    name,
-    cls: int(a.cls, CLASSES.length),
-    color: int(a.color, N_COLORS),
-    skin: int(a.skin, LIMITS.skin),
-    hair: int(a.hair, LIMITS.hair),
-    hairColor: int(a.hairColor, LIMITS.hairColor),
-    face: int(a.face, LIMITS.face),
-  };
+  const cls = int(a.cls, CLASSES.length);
+  const out = { name, cls, color: int(a.color, N_COLORS) };
+  const pre = PRESETS[cls];
+  for (const k of LOOK_KEYS) out[k] = int(a[k], LIMITS[k], k === 'skin' ? 0 : pre[k]);
+  return out;
 }
+const pickLook = (a) => { const l = {}; for (const k of LOOK_KEYS) l[k] = a[k]; return l; };
 
-export function randomAtze(name) {
+export function randomAtze(name, cls) {
   const r = (n) => Math.floor(Math.random() * n);
-  return cleanAtze({ name, cls: r(CLASSES.length), color: r(N_COLORS), skin: r(LIMITS.skin), hair: r(LIMITS.hair), hairColor: r(LIMITS.hairColor), face: r(LIMITS.face) });
+  if (cls === undefined) cls = r(CLASSES.length);
+  const a = { name, cls, color: r(N_COLORS), skin: r(LIMITS.skin), ...PRESETS[cls] };
+  // ein bisschen Abwechslung, damit zwei gleiche Charaktere nicht identisch aussehen
+  a.hairColor = r(LIMITS.hairColor);
+  if (Math.random() < 0.5) a.hair = r(LIMITS.hair);
+  if (Math.random() < 0.3) a.beard = r(LIMITS.beard);
+  if (Math.random() < 0.3) a.pattern = r(LIMITS.pattern);
+  if (Math.random() < 0.4) a.color2 = r(LIMITS.color2);
+  return cleanAtze(a);
 }
 
 export class Room {
@@ -84,7 +106,7 @@ export class Room {
     const a = cleanAtze(atze);
     const p = {
       pid: this.nextPid++, cid, name: a.name, cls: a.cls, want: a.color, color: 0,
-      look: { skin: a.skin, hair: a.hair, hairColor: a.hairColor, face: a.face },
+      look: pickLook(a),
       bot: false, level: 0, brain: null, conn: true, dc: 0, score: 0, ack: 0,
     };
     p.color = this.pickColor(p.want, p.pid);
@@ -103,7 +125,7 @@ export class Room {
     const a = randomAtze(free[Math.floor(Math.random() * free.length)] || 'Bot');
     const p = {
       pid: this.nextPid++, cid: null, name: a.name, cls: a.cls, want: a.color, color: 0,
-      look: { skin: a.skin, hair: a.hair, hairColor: a.hairColor, face: a.face },
+      look: pickLook(a),
       bot: true, level: this.settings.botLevel, brain: new Bot(this.settings.botLevel), conn: true, dc: 0, score: 0, ack: 0,
     };
     p.color = this.pickColor(p.want, p.pid);
@@ -193,7 +215,7 @@ export class Room {
         if (this.state !== 'lobby' && this.state !== 'matchEnd') return;
         const a = cleanAtze(m.atze);
         p.name = a.name; p.cls = a.cls; p.want = a.color;
-        p.look = { skin: a.skin, hair: a.hair, hairColor: a.hairColor, face: a.face };
+        p.look = pickLook(a);
         p.color = this.pickColor(p.want, p.pid);
         this.sendLobby();
         return;

@@ -102,6 +102,7 @@ input::placeholder { color: rgba(255, 255, 255, 0.35); }
 .opts.cls { display: grid; grid-template-columns: 1fr 1fr; }
 .opts.cls .opt { text-align: left; display: flex; flex-direction: column; gap: 3px; }
 .opts.cls small { color: var(--dim); font-weight: 600; font-size: 11px; }
+.opts.cls em { font-style: normal; font-size: 11px; font-weight: 800; color: var(--acc2); }
 .bars { display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: center; font-size: 10px; color: var(--dim); font-weight: 700; }
 .bar { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
 .bar i { display: block; height: 100%; background: currentColor; border-radius: 3px; }

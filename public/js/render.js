@@ -13,7 +13,7 @@ export const THEMES = [
 ];
 
 const MODEL_SCALE = 1.2; // Atzen etwas größer zeichnen, damit man sie auf dem Handy gut erkennt
-const MAXP = 3000; // max. Stützpunkte pro Linie (reicht für gut 90 Sekunden Dauerlauf)
+const MAXP = 2600; // max. Stützpunkte pro Linie (reicht für gut 80 Sekunden Dauerlauf)
 const V = () => new THREE.Vector3();
 
 function mulberry32(a) {
@@ -58,7 +58,13 @@ function buildPlanet(R, themeIdx, seed) {
     for (let j = 0; j < 3; j++) { col[(i + j) * 3] = c.r; col[(i + j) * 3 + 1] = c.g; col[(i + j) * 3 + 2] = c.b; }
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  group.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
+  // Halb durchsichtig wie im Original: Linien und Atzen auf der Rückseite scheinen durch.
+  // Erst die Innenseite der hinteren Hälfte (dunkler), dann die Vorderseite.
+  const inner = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.BackSide, transparent: true, opacity: 0.28, depthWrite: false }));
+  inner.renderOrder = -2;
+  const outer = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.6 }));
+  outer.renderOrder = -1;
+  group.add(inner, outer);
 
   // Steinchen als Deko (nur Optik, man läuft einfach durch)
   const nRocks = Math.round(R * 4);
@@ -78,28 +84,31 @@ function buildPlanet(R, themeIdx, seed) {
 }
 
 // ----- Linie als Röhre -----
-const TUBE_N = 6;                          // Ecken pro Ring
-const TUBE_C = (C.RIB_LO + C.RIB_HI) / 2;  // Höhe der Röhrenmitte über dem Boden
+// Zwischen zwei Stützpunkten vom Server wird ein Kurvenpunkt eingefügt (Catmull-Rom),
+// damit die Linie in Kurven rund aussieht statt eckig.
+const TUBE_N = 8;                          // Ecken pro Ring
+const TUBE_C = C.TUBE_C;                   // Höhe der Röhrenmitte über der Lauf-Höhe
+const MAXR = MAXP * 2;                     // Ringe im Puffer (2 pro Stützpunkt)
 const RING = Array.from({ length: TUBE_N }, (_, j) => [Math.cos((j / TUBE_N) * Math.PI * 2), Math.sin((j / TUBE_N) * Math.PI * 2)]);
 let tubeIndex = null; // alle Röhren teilen sich dieselbe Dreiecksliste
 
 function makeRibbon(color) {
   if (!tubeIndex) {
-    const idx = new Uint32Array((MAXP - 1) * TUBE_N * 6);
+    const idx = new Uint32Array((MAXR - 1) * TUBE_N * 6);
     let k = 0;
-    for (let i = 0; i < MAXP - 1; i++) {
+    for (let i = 0; i < MAXR - 1; i++) {
       const a = i * TUBE_N, b = a + TUBE_N;
       for (let j = 0; j < TUBE_N; j++) {
         const j2 = (j + 1) % TUBE_N;
-        idx[k++] = a + j; idx[k++] = b + j; idx[k++] = a + j2;
-        idx[k++] = a + j2; idx[k++] = b + j; idx[k++] = b + j2;
+        idx[k++] = a + j; idx[k++] = a + j2; idx[k++] = b + j;
+        idx[k++] = a + j2; idx[k++] = b + j2; idx[k++] = b + j;
       }
     }
     tubeIndex = new THREE.BufferAttribute(idx, 1);
   }
   const g = new THREE.BufferGeometry();
-  const pa = new THREE.BufferAttribute(new Float32Array(MAXP * TUBE_N * 3), 3);
-  const na = new THREE.BufferAttribute(new Float32Array(MAXP * TUBE_N * 3), 3);
+  const pa = new THREE.BufferAttribute(new Float32Array(MAXR * TUBE_N * 3), 3);
+  const na = new THREE.BufferAttribute(new Float32Array(MAXR * TUBE_N * 3), 3);
   pa.setUsage(THREE.DynamicDrawUsage);
   na.setUsage(THREE.DynamicDrawUsage);
   g.setAttribute('position', pa);
@@ -107,11 +116,12 @@ function makeRibbon(color) {
   g.setIndex(tubeIndex);
   g.setDrawRange(0, 0);
   // leuchtet leicht von selbst, damit die Farbe auch im Schatten knallt
-  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.38, side: THREE.DoubleSide }));
+  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.38 }));
   mesh.frustumCulled = false;
   return mesh;
 }
-const TMP = new Float32Array(400 * 4); // Zwischenspeicher für das "lebende" Ende der Linie
+const TMP_N = 512;
+const TMP = new Float32Array(TMP_N * 4); // Zwischenspeicher für Stützpunkte: x, y, z, Höhe
 
 class Sparks {
   constructor(scene, n = 300) {
@@ -251,7 +261,7 @@ export class View {
     for (const pl of game.players.values()) {
       const info = roster.get(pl.pid) || { name: '?', color: 0, look: {} };
       const color = SUITS[info.color] ?? SUITS[0];
-      const model = buildAtze({ ...info.look, color: info.color });
+      const model = buildAtze({ ...info.look, color: info.color, cls: info.cls });
       model.matrixAutoUpdate = false;
       const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.46, 18), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false }));
       shadow.matrixAutoUpdate = false;
@@ -260,7 +270,7 @@ export class View {
       const tag = pl.pid === game.myPid ? null : makeTag(info.name, color);
       this.world.add(model, shadow, ribbon);
       if (tag) this.world.add(tag);
-      this.actors.set(pl.pid, { model, shadow, ribbon, tag, color, deadFx: false, wasDash: false, done: 0, sx: 1, sy: 0, sz: 0 });
+      this.actors.set(pl.pid, { model, shadow, ribbon, tag, color, deadFx: false, wasDash: false, done: 0, sx: 1, sy: 0, sz: 0, tubeR: C.TUBE_R * pl.cls.line, ghost: pl.cls.dashGhost });
     }
     const f = game.players.get(game.myPid) || game.players.values().next().value;
     if (f) { this.cu.set(f.out.x, f.out.y, f.out.z); this.ch.set(f.out.hx, f.out.hy, f.out.hz); }
@@ -296,44 +306,68 @@ export class View {
     }
   }
 
+  // Schreibt für die Stützpunkte j0..j1-1 aus TMP je zwei Ringe: einen am Punkt und einen Kurvenpunkt
+  // auf halbem Weg zum nächsten. Stützpunkt j landet auf Ring-Platz 2 * (abs0 + j).
+  emit(act, R, n, j0, j1, abs0) {
+    const T = TMP, r = act.tubeR;
+    let last = -1;
+    for (let j = j0; j < j1; j++) {
+      const c = j * 4, a = (j > 0 ? j - 1 : j) * 4, b = (j < n - 1 ? j + 1 : j) * 4, d = (j < n - 2 ? j + 2 : n - 1) * 4;
+      const slot = 2 * (abs0 + j);
+      if (slot >= MAXR - 2) break;
+      const rad = slot === 0 ? r * 0.05 : slot <= 2 ? r * 0.35 * slot : r; // Anfang läuft spitz zu
+      this.writeRing(act, slot, R, T[c], T[c + 1], T[c + 2], T[c + 3], T[b] - T[a], T[b + 1] - T[a + 1], T[b + 2] - T[a + 2], rad);
+      last = slot;
+      if (j < n - 1) {
+        // Catmull-Rom bei t = 0.5: (-P0 + 9 P1 + 9 P2 - P3) / 16, zurück auf die Kugel normiert
+        let mx = (-T[a] + 9 * T[c] + 9 * T[b] - T[d]) / 16, my = (-T[a + 1] + 9 * T[c + 1] + 9 * T[b + 1] - T[d + 1]) / 16, mz = (-T[a + 2] + 9 * T[c + 2] + 9 * T[b + 2] - T[d + 2]) / 16;
+        const l = 1 / Math.hypot(mx, my, mz);
+        mx *= l; my *= l; mz *= l;
+        this.writeRing(act, slot + 1, R, mx, my, mz, (T[c + 3] + T[b + 3]) / 2, T[b] - T[c], T[b + 1] - T[c + 1], T[b + 2] - T[c + 2], slot === 0 ? r * 0.35 : rad);
+        last = slot + 1;
+      }
+    }
+    return last;
+  }
+
   // Die Linie bleibt die ganze Runde liegen. Alte Abschnitte ändern sich nie, deshalb wird jeder Ring
   // nur einmal berechnet; pro Frame wird nur das Ende (bis zum Atzen) neu geschrieben.
+  // act.done = so viele Stützpunkte sind schon endgültig im Puffer.
   fillRibbon(act, pl, game) {
-    const tr = pl.trail, R = game.R, o = pl.out, T = TMP, r = C.TUBE_R;
+    const tr = pl.trail, R = game.R, o = pl.out, T = TMP;
     const mine = pl === game.me && game.live && pl.alive;
     let end = tr.head;
     if (!mine) while (end > 0 && tr.k[end - 1] > o.rt) end--;
-    if (end > MAXP - 120) end = MAXP - 120;
+    if (end > MAXP - 80) end = MAXP - 80;
     const from = act.done;
-    // 1) fertige Ringe (haben beide Nachbarn)
-    for (let i = act.done; i < end - 2; i++) {
-      const a = i > 0 ? i - 1 : 0, b = i + 1;
-      this.writeRing(act, i, R, tr.x[i], tr.y[i], tr.z[i], tr.a[i], tr.x[b] - tr.x[a], tr.y[b] - tr.y[a], tr.z[b] - tr.z[a], i === 0 ? r * 0.05 : i === 1 ? r * 0.6 : r);
-      act.done = i + 1;
+    const load = (i0, i1) => { let n = 0; for (let i = i0; i < i1; i++, n++) { const q = n * 4; T[q] = tr.x[i]; T[q + 1] = tr.y[i]; T[q + 2] = tr.z[i]; T[q + 3] = tr.a[i]; } return n; };
+    // 1) Große Rückstände (z.B. nach Wiedereinstieg) in Blöcken endgültig schreiben
+    while (end - 3 - act.done > 300) {
+      const i0 = Math.max(0, act.done - 1), n = load(i0, act.done + 303);
+      this.emit(act, R, n, act.done - i0, act.done - i0 + 300, i0);
+      act.done += 300;
     }
-    // 2) lebendes Ende: letzte Punkte + (bei mir) vorhergesagter Weg + aktuelle Position
-    let n = 0;
-    const add = (x, y, z, al) => { if (n < 398) { const i = n * 4; T[i] = x; T[i + 1] = y; T[i + 2] = z; T[i + 3] = al; n++; } };
-    const lead = act.done > 0 ? 1 : 0; // ein Punkt Vorlauf für eine saubere Richtung
-    for (let i = act.done - lead; i < end; i++) add(tr.x[i], tr.y[i], tr.z[i], tr.a[i]);
+    // 2) Rest: letzte Stützpunkte + (bei mir) vorhergesagter Weg + aktuelle Position
+    const i0 = Math.max(0, act.done - 1);
+    let n = load(i0, end);
+    const add = (x, y, z, al) => { if (n < TMP_N) { const q = n * 4; T[q] = x; T[q + 1] = y; T[q + 2] = z; T[q + 3] = al; n++; } };
     if (pl.alive && end > 0) {
       if (mine) { const p = game.path; for (let i = 1; i < p.length - 1; i += 2) add(p[i].x, p[i].y, p[i].z, p[i].a); }
       add(o.x, o.y, o.z, o.alt);
     }
-    let slot = act.done;
-    for (let i = lead; i < n; i++, slot++) {
-      const c = i * 4, a = (i > 0 ? i - 1 : i) * 4, b = (i < n - 1 ? i + 1 : i) * 4;
-      this.writeRing(act, slot, R, T[c], T[c + 1], T[c + 2], T[c + 3], T[b] - T[a], T[b + 1] - T[a + 1], T[b + 2] - T[a + 2], slot === 0 ? r * 0.05 : slot === 1 ? r * 0.6 : r);
-    }
+    const last = this.emit(act, R, n, act.done - i0, n, i0);
+    // Stützpunkte, deren Nachbarn feststehen, sind ab jetzt endgültig
+    const stable = Math.max(act.done, end - 3);
     const g = act.ribbon.geometry;
-    g.setDrawRange(0, Math.max(0, (slot - 1) * TUBE_N * 6));
-    if (slot > from) {
+    if (last >= 0) g.setDrawRange(0, last * TUBE_N * 6);
+    if (last >= from * 2) {
       for (const at of [g.attributes.position, g.attributes.normal]) {
         at.clearUpdateRanges();
-        at.addUpdateRange(from * TUBE_N * 3, (slot - from) * TUBE_N * 3);
+        at.addUpdateRange(from * 2 * TUBE_N * 3, (last + 1 - from * 2) * TUBE_N * 3);
         at.needsUpdate = true;
       }
     }
+    act.done = stable;
   }
 
   // Bildschirmposition neben dem Kopf eines Atzen (für die kleine Jetpack-Leiste)
@@ -347,10 +381,10 @@ export class View {
     return v.z < 1;
   }
 
-  frame(now, dt, followPid) {
+  frame(now, dt, followPid, frac = 0) {
     this.t += dt;
     if (this.mode === 'menu') this.frameMenu(dt);
-    else if (this.game) this.frameGame(now, dt, followPid);
+    else if (this.game) this.frameGame(now, dt, followPid, frac);
     // Licht kommt immer schräg von hinter der Kamera – so ist die sichtbare Seite hell
     this.cam.updateMatrixWorld();
     const e = this.cam.matrixWorld.elements;
@@ -377,9 +411,9 @@ export class View {
     }
   }
 
-  frameGame(now, dt, followPid) {
+  frameGame(now, dt, followPid, frac) {
     const game = this.game, R = game.R;
-    game.sample(now, dt);
+    game.sample(now, dt, frac);
     const X = this._a, U = this._b, H = this._c, m = this._m;
     for (const pl of game.players.values()) {
       const act = this.actors.get(pl.pid);
@@ -418,6 +452,8 @@ export class View {
         if (act.tag) act.tag.position.set(o.x * (R + alt + 2.5), o.y * (R + alt + 2.5), o.z * (R + alt + 2.5));
         if (dash && !act.wasDash) this.sparks.burst(U.clone().multiplyScalar(R + alt + 0.7), 0xffffff, 14, 3, H.clone().multiplyScalar(-5));
         act.wasDash = dash;
+        // Rammbock flackert, solange er im Dash durch Linien kann
+        act.model.visible = !(dash && act.ghost) || Math.floor(this.t * 30) % 2 === 0;
       }
       this.fillRibbon(act, pl, game);
     }
@@ -427,8 +463,9 @@ export class View {
     if (!f) return;
     const o = f.out;
     U.set(o.x, o.y, o.z); H.set(o.hx, o.hy, o.hz);
-    this.cu.lerp(U, 1 - Math.exp(-10 * dt)).normalize();
-    this.ch.lerp(H, 1 - Math.exp(-5 * dt));
+    // Kamera folgt zügig – zu träge fühlt sich die Lenkung schwammig an
+    this.cu.lerp(U, 1 - Math.exp(-18 * dt)).normalize();
+    this.ch.lerp(H, 1 - Math.exp(-12 * dt));
     this.ch.addScaledVector(this.cu, -this.ch.dot(this.cu)).normalize();
     const up = this.portrait ? R * 1.25 : R * 0.78, back = this.portrait ? R * 0.75 : R * 0.66, ahead = this.portrait ? R * 0.12 : R * 0.2;
     this.cam.position.copy(this.cu).multiplyScalar(R + up).addScaledVector(this.ch, -back);

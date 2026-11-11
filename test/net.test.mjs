@@ -14,13 +14,13 @@ function client(name, lag, jitter = 0) {
   c.open = (join) => new Promise((res) => {
     const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
     c.ws = ws;
-    // Verzögerung mit Schwankung, aber ohne die Reihenfolge zu vertauschen (wie bei echtem TCP)
-    let upAt = 0, downAt = 0;
-    const delay = (last) => Math.max(performance.now() + lag + Math.random() * jitter, last + 0.01);
-    const sendRaw = (m) => { upAt = delay(upAt); setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify(m)), upAt - performance.now()); };
+    // Verzögerung mit Schwankung, aber garantiert in Sende-Reihenfolge (wie bei echtem TCP)
+    const lane = () => { const q = []; let last = 0; setInterval(() => { const now = performance.now(); while (q.length && q[0].t <= now) q.shift().fn(); }, 1); return (fn) => { last = Math.max(performance.now() + lag + Math.random() * jitter, last); q.push({ t: last, fn }); }; };
+    const up = lane(), down = lane();
+    const sendRaw = (m) => up(() => ws.readyState === 1 && ws.send(JSON.stringify(m)));
     c.send = sendRaw;
     ws.on('open', () => sendRaw({ t: 'join', cid: 'cid-' + name, atze: { name, cls: 0, color: 2 }, ...join }));
-    ws.on('message', (raw) => { downAt = delay(downAt); setTimeout(() => {
+    ws.on('message', (raw) => down(() => {
       const m = JSON.parse(raw.toString());
       if (m.t === 'joined') { c.pid = m.pid; c.code = m.code; res(c); }
       else if (m.t === 'err') { c.err = m.msg; res(c); }
@@ -28,7 +28,7 @@ function client(name, lag, jitter = 0) {
       else if (m.t === 'round') { c.game = new ClientGame(m, c.pid, c.roster, (rec) => sendRaw({ t: 'in', q: rec.q, s: rec.s, j: rec.j, d: rec.d })); c.rounds = (c.rounds || 0) + 1; }
       else if (m.t === 's' && c.game) { c.game.onSnap(m, performance.now()); c.snaps++; if (c.game.live && c.game.me?.alive) c.corr.push(c.game.corr); }
       else if (m.t === 'roundEnd') c.results.push(m);
-    }, downAt - performance.now()); });
+    }));
   });
   // 60-Hz-Client-Loop mit wildem Lenken
   let last = performance.now(), acc = 0;
@@ -61,7 +61,7 @@ await sleep(300);
 if (a.lobby.state !== 'lobby') fail('Nicht-Host konnte starten');
 a.send({ t: 'bot', add: true });
 a.send({ t: 'set', target: 3 });
-await sleep(300);
+for (let i = 0; i < 40 && !(a.lobby.players.length === 4 && a.lobby.settings.target === 3); i++) await sleep(50);
 if (a.lobby.players.length !== 4 || a.lobby.settings.target !== 3) fail('Bot/Einstellung: ' + JSON.stringify([a.lobby.players.map((p) => p.name), a.lobby.settings, a.lobby.host, a.pid]));
 a.send({ t: 'start' });
 await sleep(1500);
