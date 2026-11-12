@@ -19,11 +19,6 @@ export const PRESETS = [
   { outfit: 1, pattern: 5, color2: 9, hair: 1, hairColor: 2, beard: 0, glasses: 0, hat: 2, acc: 4, helmet: 1 },   // Wiesel: Trainingsanzug, Cap rückwärts, Bauchtasche
   { outfit: 4, pattern: 0, color2: 1, hair: 9, hairColor: 1, beard: 1, glasses: 4, hat: 0, acc: 8, helmet: 1 },   // Flieger: Bomberjacke, Pilotenbrille, Schnäuzer, Kopfhörer
   { outfit: 3, pattern: 0, color2: 11, hair: 0, hairColor: 0, beard: 2, glasses: 1, hat: 0, acc: 3, helmet: 1 },  // Kante: Feinripp, Goldkette, goldene Uhr
-  { outfit: 6, pattern: 0, color2: 9, hair: 9, hairColor: 4, beard: 0, glasses: 3, hat: 0, acc: 0, helmet: 1 },   // Geist: Anzug, Scheitel, Nerdbrille
-  { outfit: 2, pattern: 1, color2: 10, hair: 10, hairColor: 1, beard: 4, glasses: 0, hat: 5, acc: 0, helmet: 1 }, // Rammbock: Ringeltrikot, Bürste, Stirnband
-  { outfit: 5, pattern: 0, color2: 2, hair: 11, hairColor: 4, beard: 1, glasses: 1, hat: 3, acc: 16, helmet: 1 }, // Brummer: Hawaiihemd, Fischerhut, Dose
-  { outfit: 0, pattern: 6, color2: 0, hair: 12, hairColor: 2, beard: 0, glasses: 2, hat: 0, acc: 0, helmet: 1 },  // Segler: Flammen-Raumanzug, Stacheln, schnelle Brille
-  { outfit: 1, pattern: 2, color2: 9, hair: 7, hairColor: 3, beard: 3, glasses: 0, hat: 4, acc: 0, helmet: 1 },   // Hering: Streifen-Trainingsanzug, Zopf, Mütze
 ];
 
 const int = (v, max, def = 0) => (Number.isInteger(v) && v >= 0 && v < max ? v : def);
@@ -56,10 +51,15 @@ export function randomAtze(name, cls) {
 }
 
 export class Room {
-  // send(pid, jsonString) liefert eine Nachricht an einen Spieler aus
-  constructor(code, send) {
+  // send(pid, jsonString) liefert eine Nachricht an einen Spieler aus.
+  // opts.ranked: Runden dieses Raums können für die Rangliste zählen (nur echte Server-Räume).
+  // opts.onStats(liste): wird nach jeder gewerteten Runde mit den Zahlen pro Konto aufgerufen.
+  constructor(code, send, opts = {}) {
     this.code = code;
     this.send = send;
+    this.ranked = !!opts.ranked;
+    this.onStats = opts.onStats || null;
+    this.rated = false;
     this.players = [];
     this.nextPid = 1;
     this.host = 0;
@@ -87,11 +87,22 @@ export class Room {
     return want;
   }
 
+  // Zählt die nächste Runde für die Rangliste? Nur ohne Bots und mit mindestens zwei echten Spielern.
+  willRate() {
+    if (!this.ranked) return false;
+    const part = this.players.filter((p) => p.bot || p.conn);
+    return part.length >= 2 && !part.some((p) => p.bot);
+  }
+
   // Gibt { pid } oder { err } zurück. Gleiche cid = Wiedereinstieg nach Verbindungsabbruch.
-  join(cid, atze) {
+  // acct = { uid, name } eines angemeldeten Kontos (oder null für Gäste).
+  join(cid, atze, acct) {
+    // dasselbe Konto darf nicht zweimal im Raum sitzen (sonst könnte man sich selbst abfarmen)
+    if (acct && this.players.some((p) => p.uid === acct.uid && p.cid !== cid)) acct = null;
     const old = this.players.find((p) => !p.bot && p.cid === cid);
     if (old) {
       old.conn = true; old.dc = 0;
+      if (acct && !old.uid) { old.uid = acct.uid; old.acc = acct.name; }
       this.fixHost();
       this.send(old.pid, JSON.stringify({ t: 'joined', pid: old.pid, code: this.code }));
       this.sendLobby();
@@ -108,6 +119,7 @@ export class Room {
       pid: this.nextPid++, cid, name: a.name, cls: a.cls, want: a.color, color: 0,
       look: pickLook(a),
       bot: false, level: 0, brain: null, conn: true, dc: 0, score: 0, ack: 0,
+      uid: acct ? acct.uid : 0, acc: acct ? acct.name : '',
     };
     p.color = this.pickColor(p.want, p.pid);
     this.players.push(p);
@@ -163,7 +175,8 @@ export class Room {
   lobbyInfo() {
     return {
       t: 'lobby', code: this.code, state: this.state, host: this.host, settings: this.settings,
-      players: this.players.map((p) => ({ pid: p.pid, name: p.name, cls: p.cls, color: p.color, look: p.look, bot: p.bot, score: p.score, conn: p.conn })),
+      ranked: this.ranked, rated: this.state === 'lobby' || this.state === 'matchEnd' ? this.willRate() : this.rated,
+      players: this.players.map((p) => ({ pid: p.pid, name: p.name, cls: p.cls, color: p.color, look: p.look, bot: p.bot, score: p.score, conn: p.conn, acc: p.acc || '' })),
       result: this.state === 'matchEnd' ? this.lastResult : null,
     };
   }
@@ -276,7 +289,8 @@ export class Room {
     this.theme = Math.floor(Math.random() * N_THEMES);
     this.seed = Math.floor(Math.random() * 1e9);
     // Startplätze durchmischen
-    const order = part.map((p) => ({ pid: p.pid, cls: p.cls })).sort(() => Math.random() - 0.5);
+    this.rated = this.willRate();
+    const order = part.map((p) => ({ pid: p.pid, cls: p.cls, uid: p.uid || 0 })).sort(() => Math.random() - 0.5);
     this.round = new Round(order, planetRadius(part.length));
     for (const p of this.players) { p.ack = 0; if (p.bot) p.brain = new Bot(p.level); }
     this.events = [];
@@ -293,9 +307,20 @@ export class Room {
     const match = w && w.score >= this.settings.target ? w.pid : null;
     this.lastResult = { winner: w ? w.pid : null, match, scores: this.players.map((p) => [p.pid, p.score]), time: Math.round(r.tick / TICK_RATE * 10) / 10 };
     this.matchOver = match != null;
+    // Rangliste: Kill = jemand läuft in deine Linie, Tod = du bist raus (egal wodurch, auch Verlassen)
+    if (this.rated && this.onStats) {
+      const list = [];
+      for (const pl of r.pl) {
+        if (!pl.uid) continue;
+        let kills = 0;
+        for (const o of r.pl) if (o !== pl && !o.alive && o.by === pl.pid) kills++;
+        list.push({ uid: pl.uid, kills, deaths: pl.alive ? 0 : 1, rounds: 1, wins: r.winner === pl.pid ? 1 : 0, matches: this.matchOver ? 1 : 0, matchWins: match === pl.pid ? 1 : 0 });
+      }
+      if (list.length) { try { this.onStats(list); } catch {} }
+    }
     this.state = 'roundEnd';
     this.phase = Math.round((this.matchOver ? 4.5 : 3.5) * TICK_RATE);
-    this.all(JSON.stringify({ t: 'roundEnd', ...this.lastResult }));
+    this.all(JSON.stringify({ t: 'roundEnd', rated: this.rated, ...this.lastResult }));
   }
 
   snapshot() {

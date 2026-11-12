@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Room } from './public/shared/room.js';
 import { TICK_RATE } from './public/shared/sim.js';
+import { openDb } from './db.js';
+import { makeAccounts } from './accounts.js';
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
@@ -18,11 +20,42 @@ const MIME = {
 const MAX_ROOMS = 200;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 
+// ---------- Konten + Rangliste ----------
+const db = await openDb();
+const accounts = makeAccounts(db);
+console.log(`Speicher für Konten/Rangliste: ${db.kind}${db.kind === 'datei' && process.env.RENDER ? ' – ACHTUNG: ohne DATABASE_URL gehen die Daten bei jedem Neustart verloren' : ''}`);
+
+function readBody(req) {
+  return new Promise((res) => {
+    let s = '';
+    req.on('data', (c) => { s += c; if (s.length > 2000) { s = ''; req.destroy(); } });
+    req.on('end', () => { try { res(JSON.parse(s || '{}')); } catch { res({}); } });
+    req.on('error', () => res({}));
+  });
+}
+async function api(req, res, route) {
+  const head = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, authorization' };
+  if (req.method === 'OPTIONS') { res.writeHead(204, head); res.end(); return; }
+  try {
+    const body = req.method === 'POST' ? await readBody(req) : {};
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+    const auth = String(req.headers.authorization || '').replace(/^Bearer /, '');
+    const [status, out] = await accounts.handle(route, body && typeof body === 'object' ? body : {}, ip, auth);
+    res.writeHead(status, head);
+    res.end(JSON.stringify(out));
+  } catch (e) {
+    console.error('API', route, e.message);
+    res.writeHead(500, head);
+    res.end(JSON.stringify({ err: 'Serverfehler. Probier es gleich nochmal.' }));
+  }
+}
+
 // ---------- Dateien ausliefern ----------
 const server = http.createServer(async (req, res) => {
   try {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (p === '/healthz') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`ok ${rooms.size} ${p2p.size}`); return; }
+    if (p.startsWith('/api/')) { await api(req, res, p.slice(5)); return; }
     if (p === '/') p = '/index.html';
     const file = path.join(PUBLIC, path.normalize(p));
     if (!file.startsWith(PUBLIC)) { res.writeHead(403); res.end(); return; }
@@ -59,6 +92,10 @@ function createRoom() {
   const room = new Room(code, (pid, str) => {
     const ws = socks.get(pid);
     if (ws && ws.readyState === 1) ws.send(str);
+  }, {
+    // Nur Server-Räume zählen für die Rangliste: hier rechnet der Server, nicht ein Handy
+    ranked: true,
+    onStats: (list) => { for (const d of list) db.addStats(d.uid, d).catch((e) => console.error('Statistik:', e.message)); },
   });
   const entry = { room, socks };
   rooms.set(code, entry);
@@ -77,19 +114,46 @@ wss.on('connection', (ws) => {
   ws.pid = 0;
   ws.p2p = null;
   ws.on('pong', () => { ws.alive = true; });
-  ws.on('message', (raw) => {
+  ws.on('message', async (raw) => {
     let m;
     try { m = JSON.parse(raw.toString()); } catch { return; }
     if (!m || typeof m !== 'object') return;
     // ----- WLAN-Raum anmelden (der Host kann seinen Code nach einem Verbindungsabbruch zurückholen) -----
     if (m.t === 'p2p-host') {
-      if (ws.entry || ws.p2p) return;
+      if (ws.entry || ws.p2p || ws.joining) return;
+      // Konto des Hosts prüfen – WLAN-Räume zählen auch für die Rangliste
+      let acct = null;
+      if (m.token) {
+        ws.joining = true;
+        try { acct = await accounts.verify(m.token); } catch {}
+        ws.joining = false;
+        if (ws.readyState !== 1 || ws.entry || ws.p2p) return;
+      }
       let code = typeof m.code === 'string' && /^[A-Z]{4}$/.test(m.code) && !rooms.has(m.code) && !p2p.has(m.code) ? m.code : null;
       if (!code && p2p.size < 500) code = newCode();
       if (!code) { say(ws, { t: 'err', msg: 'Server ist voll, probier es gleich nochmal.' }); return; }
-      p2p.set(code, { host: ws, peers: new Map(), n: 1 });
+      p2p.set(code, { host: ws, peers: new Map(), uids: new Set(acct ? [acct.uid] : []), lastStats: 0 });
       ws.p2p = { code, host: true };
-      say(ws, { t: 'p2p-hosted', code });
+      say(ws, { t: 'p2p-hosted', code, acct });
+      return;
+    }
+    // ----- Rundenergebnis aus einem WLAN-Raum -----
+    // Hier rechnet das Handy des Hosts, der Server kann das Ergebnis nicht nachprüfen. Er nimmt nur Konten an,
+    // die sich wirklich über ihn in diesen Raum eingewählt haben, und nur Zahlen, die in eine Runde passen.
+    if (m.t === 'p2p-stats') {
+      const pr = ws.p2p && ws.p2p.host && p2p.get(ws.p2p.code);
+      const now = Date.now();
+      if (!pr || pr.host !== ws || !Array.isArray(m.list) || m.list.length < 1 || m.list.length > 8 || now - pr.lastStats < 2500) return;
+      pr.lastStats = now;
+      const seen = new Set();
+      const b = (v) => (v === 1 ? 1 : 0);
+      for (const d of m.list) {
+        if (!d || !pr.uids.has(d.uid) || seen.has(d.uid)) continue;
+        seen.add(d.uid);
+        const kills = Number.isInteger(d.kills) && d.kills >= 0 && d.kills <= 7 ? d.kills : 0;
+        db.addStats(d.uid, { kills, deaths: b(d.deaths), rounds: 1, wins: b(d.wins) && !b(d.deaths) ? 1 : 0, matches: b(d.matches), matchWins: b(d.matchWins) })
+          .catch((e) => console.error('Statistik:', e.message));
+      }
       return;
     }
     // ----- Verbindungsdaten zwischen Host und Mitspieler durchreichen -----
@@ -104,7 +168,15 @@ wss.on('connection', (ws) => {
     if (m.t === 'join') {
       if (ws.entry || ws.p2p) return;
       const cid = typeof m.cid === 'string' ? m.cid.slice(0, 40) : '';
-      if (!cid) return;
+      if (!cid || ws.joining) return;
+      // angemeldetes Konto? (Gäste spielen ganz normal mit, tauchen nur nicht in der Rangliste auf)
+      let acct = null;
+      if (m.token) {
+        ws.joining = true;
+        try { acct = await accounts.verify(m.token); } catch (e) { console.error('Konto:', e.message); }
+        ws.joining = false;
+        if (ws.readyState !== 1 || ws.entry || ws.p2p) return;
+      }
       let entry;
       if (m.create) {
         entry = createRoom();
@@ -119,6 +191,8 @@ wss.on('connection', (ws) => {
             const id = Math.random().toString(36).slice(2, 10); // zufällig, damit IDs auch nach einem Server-Neustart eindeutig bleiben
             pr.peers.set(id, ws);
             ws.p2p = { code, id };
+            // dem Host sagen, welches Konto hinter diesem Mitspieler steckt (das Token selbst bekommt er nie zu sehen)
+            if (acct) { pr.uids.add(acct.uid); say(pr.host, { t: 'p2p-acct', from: id, acct }); }
             say(ws, { t: 'p2p', code, id });
             return;
           }
@@ -136,7 +210,7 @@ wss.on('connection', (ws) => {
         entry.socks.set(entry.room.nextPid, ws);
       }
       const pidGuess = existing ? existing.pid : entry.room.nextPid;
-      const res = entry.room.join(cid, m.atze);
+      const res = entry.room.join(cid, m.atze, acct);
       if (res.err) {
         entry.socks.delete(pidGuess);
         ws.send(JSON.stringify({ t: 'err', msg: res.err }));

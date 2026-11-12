@@ -18,7 +18,7 @@ export const C = {
   FUEL_REGEN: 0.5,   // Tank pro Sekunde am Boden
   FUEL_DELAY: 0.25,  // Pause nach der Landung, bevor der Tank nachlädt
   FUEL_MIN: 0.25,    // so viel Tank braucht man zum Abheben
-  FLY_MIN: 0.30,     // Mindest-Flugdauer in Sekunden (inkl. 0,13 s Steigen): Durchgang unter der Linie ist dann gut doppelt so breit wie ein Atze
+  FLY_MIN: 0.38,     // Mindest-Flugdauer in Sekunden (inkl. 0,13 s Steigen): Durchgang unter der Linie ist dann gut doppelt so breit wie ein Atze
   DASH_MULT: 1.9,
   DASH_TIME: 0.4,
   DASH_CD: 3,
@@ -42,16 +42,12 @@ export const C = {
 // Neuer Charakter: hier eine Zeile ergänzen, dazu einen Look in PRESETS (shared/room.js) und einen Körperbau in BUILDS (js/atze.js).
 const BASE = { speed: 1, airSpeed: 1, turn: 1, jet: 1, regen: 1, dashCd: 1, dashLen: 1, line: 1, hit: 1, selfImmune: false, dashGhost: false, special: '' };
 export const CLASSES = [
-  { id: 'allround', name: 'Allrounder', desc: 'Solide in allem.' },
-  { id: 'raser', name: 'Raser', desc: 'Brutal schnell, lenkt wie ein Tanker, kleiner Tank.', speed: 1.3, turn: 0.8, jet: 0.6, regen: 0.75, dashCd: 1.3, dashLen: 0.8 },
-  { id: 'wiesel', name: 'Wiesel', desc: 'Langsam, dreht aber auf der Stelle.', speed: 0.86, turn: 1.5, jet: 0.8, regen: 1.2, dashCd: 0.8 },
-  { id: 'flieger', name: 'Flieger', desc: 'Riesentank, der blitzschnell nachlädt.', speed: 0.93, turn: 0.95, jet: 2.2, regen: 2.0, dashCd: 1.3, dashLen: 0.9 },
-  { id: 'kante', name: 'Kante', desc: 'Gemütlich, aber dasht fast pausenlos.', speed: 0.9, turn: 1.1, jet: 0.7, regen: 0.9, dashCd: 0.4, dashLen: 1.5 },
-  { id: 'geist', name: 'Geist', desc: 'Langsam und kleiner Tank.', special: 'Läuft durch die eigene Linie', speed: 0.84, turn: 1.0, jet: 0.7, regen: 0.8, dashCd: 1.3, selfImmune: true },
-  { id: 'rammbock', name: 'Rammbock', desc: 'Selten bereit, dann unaufhaltsam.', special: 'Dasht durch Linien hindurch', speed: 0.95, turn: 0.9, jet: 0.8, dashCd: 1.7, dashLen: 0.9, dashGhost: true },
-  { id: 'brummer', name: 'Brummer', desc: 'Träge, macht aber den Planeten dicht.', special: 'Zieht eine extra dicke Linie', speed: 0.88, turn: 0.9, regen: 0.9, dashCd: 1.2, line: 1.8 },
-  { id: 'segler', name: 'Segler', desc: 'Am Boden lahm, oben eine Rakete.', special: 'Fliegt viel schneller als er läuft', speed: 0.85, airSpeed: 1.55, turn: 1.05, jet: 1.5, regen: 1.3, dashCd: 1.4 },
-  { id: 'hering', name: 'Hering', desc: 'Passt durch Lücken, wo andere hängen bleiben.', special: 'Halb so breite Trefferfläche', speed: 1.02, turn: 1.1, jet: 0.75, regen: 0.9, dashCd: 1.2, hit: 0.45 },
+  // Bewusst nah beieinander: jeder hat eine spürbare Stärke und zahlt dafür woanders ein bisschen.
+  { id: 'allround', name: 'Allrounder', desc: 'Keine Schwäche, keine Stärke.' },
+  { id: 'raser', name: 'Raser', desc: 'Etwas schneller, lenkt etwas träger.', speed: 1.08, turn: 0.93, jet: 0.92, regen: 0.95, dashCd: 1.1 },
+  { id: 'wiesel', name: 'Wiesel', desc: 'Etwas wendiger, dafür etwas langsamer.', speed: 0.95, turn: 1.14, jet: 0.95, dashCd: 0.95 },
+  { id: 'flieger', name: 'Flieger', desc: 'Etwas mehr Tank, der dafür langsamer nachlädt.', speed: 0.97, turn: 0.98, jet: 1.18, regen: 0.82, dashCd: 1.1 },
+  { id: 'kante', name: 'Kante', desc: 'Dash ist schneller wieder da, kleinerer Tank.', speed: 0.97, jet: 0.9, regen: 0.95, dashCd: 0.75, dashLen: 1.1 },
 ].map((c) => ({ ...BASE, ...c }));
 
 export function planetRadius(nPlayers) {
@@ -152,7 +148,7 @@ export class Round {
       // Tangente am Äquator, abwechselnd Richtung Nord-/Südpol gekippt
       s.hx = -Math.sin(th) * Math.cos(tilt); s.hy = Math.sin(tilt) * side; s.hz = Math.cos(th) * Math.cos(tilt);
       return {
-        pid: d.pid, k: CLASSES[d.cls] || CLASSES[0], s, alive: true,
+        pid: d.pid, uid: d.uid || 0, k: CLASSES[d.cls] || CLASSES[0], s, alive: true,
         inp: { s: 0, j: false, d: false },
         tx: [], ty: [], tz: [], ta: [], tail: 0, sent: 0, by: -1, diedTick: -1,
       };

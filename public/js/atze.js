@@ -24,11 +24,6 @@ const BUILDS = [
   { w: 0.9, h: 0.8, head: 1.14, pack: 0.9, wings: false },   // Wiesel: klein mit großem Kopf
   { w: 1.0, h: 1.0, head: 1.0, pack: 1.35, wings: true },    // Flieger: dickes Jetpack mit Flügeln
   { w: 1.34, h: 0.97, head: 0.9, pack: 1.0, wings: false },  // Kante: Schrank
-  { w: 0.95, h: 1.06, head: 1.08, pack: 0.8, wings: false }, // Geist: schmal, großer Kopf
-  { w: 1.2, h: 1.06, head: 0.95, pack: 1.1, wings: false },  // Rammbock: groß und kräftig
-  { w: 1.5, h: 0.88, head: 1.0, pack: 1.15, wings: false },  // Brummer: kugelrund
-  { w: 0.92, h: 1.04, head: 1.0, pack: 1.2, wings: true },   // Segler: Flügel-Jetpack
-  { w: 0.66, h: 1.1, head: 0.82, pack: 0.7, wings: false },  // Hering: Strich in der Landschaft
 ];
 
 export const hex = (n) => '#' + n.toString(16).padStart(6, '0');

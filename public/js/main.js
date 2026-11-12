@@ -109,7 +109,7 @@ const tagName = (pid) => `<b style="color:${colorOf(pid)}">${esc(nameOf(pid))}</
 // ---------- Screens ----------
 function show(name) {
   screen = name;
-  for (const s of ['home', 'editor', 'lobby']) $('scr-' + s).hidden = s !== name;
+  for (const s of ['home', 'editor', 'lobby', 'account', 'board']) $('scr-' + s).hidden = s !== name;
   const inGame = name === 'game';
   musicMode(inGame ? 'game' : 'menu');
   $('hud').hidden = !inGame;
@@ -123,6 +123,72 @@ function show(name) {
   if (name === 'home') renderHome();
   if (name === 'editor') renderEditor();
   if (name === 'lobby') renderLobby();
+  if (name === 'account') renderAccount();
+  if (name === 'board') renderBoard();
+}
+
+// ---------- Konto + Rangliste ----------
+const API = ((typeof window !== 'undefined' && window.ASTRO_SERVER) || location.origin).replace(/\/$/, '') + '/api/';
+async function api(route, body) {
+  const headers = {};
+  if (body) headers['content-type'] = 'application/json';
+  if (store.token) headers.authorization = 'Bearer ' + store.token;
+  let r;
+  try { r = await fetch(API + route, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined }); }
+  catch { throw new Error('Server nicht erreichbar.'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.err || 'Das hat nicht geklappt.'); e.status = r.status; throw e; }
+  return j;
+}
+const kd = (u) => (u.kills / Math.max(1, u.deaths)).toFixed(2);
+const rate = (u) => (u.rounds ? Math.round((u.wins / u.rounds) * 100) : 0) + ' %';
+function statBoxes(u) {
+  const box = (v, l) => `<div><b>${v}</b><small>${l}</small></div>`;
+  return box(kd(u), 'K/D') + box(u.kills, 'Kills') + box(u.deaths, 'Tode') + box(`${u.wins}/${u.rounds}`, 'Runden gewonnen') + box(rate(u), 'Siegquote') + box(`${u.matchWins}/${u.matches}`, 'Matches gewonnen');
+}
+function setAccount(res) {
+  if (res) { store.token = res.token || store.token; store.account = res.account.name; store.stats = res.account; }
+  else { delete store.token; delete store.account; delete store.stats; }
+  save();
+}
+async function renderAccount() {
+  const logged = !!store.token;
+  $('acc-out').hidden = logged;
+  $('acc-in').hidden = !logged;
+  if (!logged) return;
+  $('acc-who').textContent = store.account || '';
+  if (store.stats) $('acc-stats').innerHTML = statBoxes(store.stats);
+  try { const r = await api('me'); setAccount({ account: r.account }); if (screen === 'account') { $('acc-who').textContent = r.account.name; $('acc-stats').innerHTML = statBoxes(r.account); } }
+  catch (e) { if (e.status === 401) { setAccount(null); toast('Bitte neu anmelden.'); if (screen === 'account') renderAccount(); } }
+}
+async function auth(route) {
+  const name = $('acc-name').value.trim(), password = $('acc-pass').value;
+  if (name.length < 3) { toast('Der Name braucht mindestens 3 Zeichen.'); return; }
+  if (password.length < 6) { toast('Das Passwort braucht mindestens 6 Zeichen.'); return; }
+  busy(route === 'login' ? 'Melde an …' : 'Lege Konto an …');
+  try {
+    setAccount(await api(route, { name, password }));
+    $('acc-pass').value = '';
+    toast(route === 'login' ? `Hi ${store.account}!` : `Konto ${store.account} angelegt.`);
+    renderAccount();
+  } catch (e) { toast(e.message, 4000); }
+  busy('');
+}
+async function renderBoard() {
+  const el = $('board-list');
+  el.innerHTML = '<span class="hint" style="grid-column:1/-1">Lade …</span>';
+  try {
+    const r = await api('leaderboard');
+    if (!r.top.length) { el.innerHTML = '<span class="hint" style="grid-column:1/-1">Noch keine gewerteten Runden. Spielt eine Runde im Server-Raum ohne Bots.</span>'; return; }
+    let html = '<span class="h">#</span><span class="h">Name</span><span class="h r">K/D</span><span class="h r">Kills</span><span class="h r">Tode</span><span class="h r">Siege</span><span class="h r">Quote</span>';
+    let rank = 0;
+    for (const u of r.top) {
+      const placed = u.rounds >= r.minRounds;
+      const c = (u.name === store.account ? ' me' : '') + (placed ? '' : ' dim');
+      html += `<span class="r${c}">${placed ? ++rank : '–'}</span><span class="n${c}">${esc(u.name)}</span><span class="v kd${c}">${kd(u)}</span><span class="v${c}">${u.kills}</span><span class="v${c}">${u.deaths}</span><span class="v${c}">${u.wins}/${u.rounds}</span><span class="v${c}">${rate(u)}</span>`;
+    }
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = `<span class="hint" style="grid-column:1/-1">${esc(e.message)}</span>`; }
 }
 
 function renderHome() {
@@ -132,6 +198,7 @@ function renderHome() {
   $('home-dot').style.background = hex(SUITS[a.color]);
   $('home-online').hidden = OFFLINE;
   $('home-music').textContent = `Musik: ${store.music !== false ? 'an' : 'aus'}`;
+  $('btn-account').textContent = store.account ? `Konto: ${store.account}` : 'Anmelden';
   $('home-hint').textContent = OFFLINE
     ? 'Testversion: hier läuft nur das Training. Online mit Freunden geht über die Server-Version.'
     : coarse ? 'Tipp: Über „Zum Home-Bildschirm" läuft das Spiel im Vollbild wie eine App.' : 'Am PC: A/D oder Pfeiltasten lenken, Leertaste = Jetpack, Shift = Dash.';
@@ -157,7 +224,7 @@ function buildEditor() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'opt';
-    b.innerHTML = `${esc(c.name)}<small>${esc(c.desc)}</small><div class="bars">${bar('Tempo', (c.speed - 0.7) / 0.65)}${bar('Wendig', (c.turn - 0.6) / 0.95)}${bar('Tank', c.jet / 2.2)}${bar('Laden', c.regen / 2)}${bar('Dash', 0.4 / c.dashCd)}</div>${c.special ? `<em>★ ${esc(c.special)}</em>` : ''}`;
+    b.innerHTML = `${esc(c.name)}<small>${esc(c.desc)}</small><div class="bars">${bar('Tempo', (c.speed - 0.85) / 0.3)}${bar('Wendig', (c.turn - 0.82) / 0.4)}${bar('Tank', (c.jet - 0.75) / 0.55)}${bar('Laden', (c.regen - 0.8) / 0.4)}${bar('Dash', (1 / c.dashCd - 0.75) / 0.7)}</div>${c.special ? `<em>★ ${esc(c.special)}</em>` : ''}`;
     b.addEventListener('click', () => {
       const a = active();
       if (a.cls !== i) Object.assign(a, PRESETS[i], { cls: i });
@@ -229,6 +296,7 @@ function plRow(p, opts = {}) {
   if (p.pid === myPid) tags.push('Du');
   if (lobby && p.pid === lobby.host) tags.push('Host');
   if (p.bot) tags.push('Bot');
+  if (p.acc) tags.push(`Konto ${p.acc}`);
   if (!p.conn) tags.push('weg');
   tags.push(CLASSES[p.cls].name);
   return `<div class="pl${p.pid === myPid ? ' me' : ''}${p.conn ? '' : ' off'}"><i class="dot" style="background:${hex(SUITS[p.color])}"></i>` +
@@ -274,6 +342,13 @@ function renderLobby() {
   $('lob-botplus').disabled = lobby.players.length >= MAX_PLAYERS;
   const n = lobby.players.filter((p) => p.bot || p.conn).length;
   $('lob-start').disabled = n < 2;
+  // Zählt die Runde für die Rangliste?
+  const rk = $('lob-rank');
+  const meAcc = (lobby.players.find((p) => p.pid === myPid) || {}).acc;
+  rk.classList.toggle('yes', !!lobby.rated);
+  rk.textContent = local ? ''
+    : lobby.rated ? (meAcc ? '★ Diese Runde zählt für die Rangliste.' : '★ Diese Runde zählt für die Rangliste – du spielst aber als Gast (im Startmenü anmelden).')
+      : bots > 0 ? 'Mit Bots im Raum zählt die Runde nicht für die Rangliste.' : 'Für die Rangliste braucht es mindestens 2 Spieler.';
   $('lob-hint').textContent = !isHost ? `Warte, bis ${nameOf(lobby.host)} startet …`
     : n < 2 ? 'Mindestens 2 Atzen: Schick deinen Freunden den Link oder füg Bots hinzu.'
       : local ? '' : conn && conn.p2p ? 'Du hostest: Lass das Spiel offen, sonst steht es für alle. Beitreten geht mit dem Code wie immer.'
@@ -308,7 +383,7 @@ function connect(kind, code) {
   leave(true);
   connKind = kind;
   const handlers = {
-    open: () => conn.send({ t: 'join', create: kind === 'create', room: code || '', cid: store.cid, atze: active(), bots: 3 }),
+    open: () => conn.send({ t: 'join', create: kind === 'create', room: code || '', cid: store.cid, atze: active(), bots: 3, token: store.token }),
     msg: onMsg,
     close: onClose,
   };
@@ -318,9 +393,9 @@ function connect(kind, code) {
     // WLAN-Raum: beim Server nur einen Code holen, der Raum selbst läuft dann auf diesem Gerät
     if (typeof RTCPeerConnection === 'undefined') { toast('Dieser Browser kann keine Direktverbindungen. Nimm den Server-Raum.', 5000); show('home'); return; }
     const sig = new WSConn({
-      open: () => sig.send({ t: 'p2p-host' }),
+      open: () => sig.send({ t: 'p2p-host', token: store.token }),
       msg: (m) => {
-        if (m.t === 'p2p-hosted') { conn = new HostConn(handlers, sig, m.code); handlers.open(); }
+        if (m.t === 'p2p-hosted') { conn = new HostConn(handlers, sig, m.code, m.acct); handlers.open(); }
         else if (m.t === 'err') onMsg(m);
       },
       close: onClose,
@@ -350,7 +425,7 @@ function onClose() {
   setTimeout(() => {
     if (roomCode !== code) return;
     const handlers = {
-      open: () => conn.send({ t: 'join', room: code, cid: store.cid, atze: active() }),
+      open: () => conn.send({ t: 'join', room: code, cid: store.cid, atze: active(), token: store.token }),
       msg: onMsg,
       close: onClose,
     };
@@ -556,6 +631,14 @@ function wire() {
   click('home-atze', () => { editorBack = 'home'; show('editor'); });
   click('btn-create', () => { fullscreen(); connect('create'); });
   click('btn-host', () => { fullscreen(); connect('host'); });
+  click('btn-board', () => show('board'));
+  click('btn-account', () => show('account'));
+  click('acc-back', () => show('home'));
+  click('board-back', () => show('home'));
+  click('acc-login', () => auth('login'));
+  click('acc-register', () => auth('register'));
+  click('acc-logout', () => { api('logout', {}).catch(() => {}); setAccount(null); renderAccount(); });
+  $('acc-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('acc-login').click(); });
   click('btn-join', () => {
     const code = $('inp-code').value.toUpperCase().replace(/[^A-Z]/g, '');
     if (code.length !== 4) { toast('Der Raumcode hat 4 Buchstaben.'); $('inp-code').focus(); return; }

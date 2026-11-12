@@ -31,6 +31,25 @@ Wichtig: Die Region **Frankfurt** beim Anlegen auswählen – steht der Server i
 
 Hinweis zum Gratis-Tarif: Nach 15 Minuten ohne Besucher schläft der Server ein, der erste Aufruf danach dauert etwa eine Minute. Während gespielt wird, bleibt er wach.
 
+## Konten + Rangliste
+
+Im Startmenü kann sich jeder ein Konto anlegen (Name + Passwort, keine E-Mail). Für die Rangliste zählen nur Runden, die
+
+- **ohne Bots** gespielt werden und
+- mindestens **zwei echte Spieler** haben.
+
+Server- und WLAN-Räume zählen beide. Bei WLAN-Räumen rechnet das Handy des Hosts und meldet das Ergebnis; der Server kann es nicht nachprüfen, ein Host könnte also schummeln.
+
+Kill = jemand läuft in deine Linie. Tod = du bist raus, egal wodurch (auch eigene Linie oder Raum verlassen). Dasselbe Konto kann nicht zweimal im selben Raum sitzen. In die Platzierung kommt man ab 10 Runden.
+
+**Damit die Daten erhalten bleiben, braucht der Server eine Datenbank.** Ohne sie speichert er in `data/db.json`, und die ist auf Render nach jedem Neustart leer. Einrichtung (kostenlos, einmalig):
+
+1. Auf https://neon.com ein Konto anlegen und ein Projekt erstellen (Region Frankfurt).
+2. Die „Connection string" kopieren (beginnt mit `postgresql://`).
+3. Bei Render im Service unter **Environment** eine Variable `DATABASE_URL` mit diesem Wert anlegen und speichern. Render startet neu, die Tabellen legt der Server selbst an.
+
+Im Render-Log steht danach `Speicher für Konten/Rangliste: postgres`.
+
 ## Zwei Arten von Räumen
 
 - **Server-Raum**: Die Runde läuft auf dem Server. Funktioniert überall, die Verzögerung hängt vom Server ab.
@@ -47,6 +66,7 @@ Seite im Browser öffnen → Menü → **Zum Home-Bildschirm hinzufügen**. Dana
 | Datei | Zweck |
 |---|---|
 | `server.js` | liefert `public/` aus und hostet die Räume per WebSocket (`/ws`) |
+| `accounts.js`, `db.js` | Konten (Passwort-Hash, Anmelde-Token) und Speicher für die Rangliste (Postgres oder Datei) |
 | `public/shared/sim.js` | Spielphysik, Bänder, Kollision, Bots – **alle Stellschrauben stehen oben in `C`** |
 | `public/shared/room.js` | Lobby, Runden, Punkte (läuft auf dem Server und im Training im Browser) |
 | `public/js/net.js` | Verbindungen: Server (WebSocket), Training (lokal), WLAN-Raum (Host/Mitspieler per WebRTC) |

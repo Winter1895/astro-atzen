@@ -20,7 +20,7 @@
 <main id="ui">
   <!-- Start -->
   <section class="screen" id="scr-home">
-    <div class="panel">
+    <div class="panel scroll">
       <h1 class="logo"><span>ASTRO</span> <span>ATZEN</span></h1>
       <button class="atze-chip" id="home-atze" aria-label="Atze bearbeiten">
         <i class="dot" id="home-dot"></i>
@@ -35,6 +35,10 @@
         <div class="join-row">
           <input id="inp-code" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Raumcode">
           <button class="btn" id="btn-join">Beitreten</button>
+        </div>
+        <div class="join-row">
+          <button class="btn small" id="btn-board" style="flex:1">Rangliste</button>
+          <button class="btn small" id="btn-account" style="flex:1">Anmelden</button>
         </div>
       </div>
       <div class="join-row">
@@ -73,6 +77,37 @@
     </div>
   </section>
 
+  <!-- Konto -->
+  <section class="screen" id="scr-account" hidden>
+    <div class="panel scroll">
+      <header class="row"><h2>Konto</h2><button class="btn small" id="acc-back">Zurück</button></header>
+      <div id="acc-out" class="stack">
+        <p class="hint">Mit Konto landen deine Kills und Tode aus Online-Runden in der Rangliste. Ohne Konto spielst du ganz normal als Gast.</p>
+        <label class="field"><span>Name (3–12 Zeichen)</span><input id="acc-name" maxlength="12" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+        <label class="field"><span>Passwort (mind. 6 Zeichen)</span><input id="acc-pass" type="password" maxlength="72" autocomplete="current-password"></label>
+        <div class="join-row">
+          <button class="btn primary" id="acc-login" style="flex:1">Anmelden</button>
+          <button class="btn" id="acc-register" style="flex:1">Neues Konto</button>
+        </div>
+        <p class="hint">Es gibt keine E-Mail und kein „Passwort vergessen". Nimm ein Passwort, das du sonst nirgends benutzt.</p>
+      </div>
+      <div id="acc-in" class="stack" hidden>
+        <div class="code" id="acc-who" style="font-size:24px;letter-spacing:.04em"></div>
+        <div id="acc-stats" class="stats"></div>
+        <button class="btn small ghost" id="acc-logout">Abmelden</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Rangliste -->
+  <section class="screen" id="scr-board" hidden>
+    <div class="panel scroll wide">
+      <header class="row"><h2>Rangliste</h2><button class="btn small" id="board-back">Zurück</button></header>
+      <div id="board-list" class="board"></div>
+      <p class="hint">Gewertet werden nur Runden ohne Bots mit mindestens zwei Spielern. Kill = jemand läuft in deine Linie. Siege = gewonnene Runden von allen gespielten. Platziert wird ab 10 Runden.</p>
+    </div>
+  </section>
+
   <!-- Lobby -->
   <section class="screen" id="scr-lobby" hidden>
     <div class="panel scroll">
@@ -97,6 +132,7 @@
         </div>
         <button class="btn primary" id="lob-start">Los geht's</button>
       </div>
+      <p class="hint" id="lob-rank"></p>
       <p class="hint" id="lob-hint"></p>
     </div>
   </section>

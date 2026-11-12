@@ -109,6 +109,21 @@ input::placeholder { color: rgba(255, 255, 255, 0.35); }
 .sw { width: 32px; height: 32px; border-radius: 50%; border: 3px solid transparent; padding: 0; box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.22); }
 .sw.on { border-color: #fff; transform: scale(1.1); }
 
+/* ---------- Konto + Rangliste ---------- */
+.panel.wide { width: min(62%, 560px); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.stats div { background: rgba(255, 255, 255, 0.07); border-radius: 12px; padding: 7px 9px; display: flex; flex-direction: column; }
+.stats b { font-size: 20px; font-weight: 900; color: var(--acc); line-height: 1.1; }
+.stats small { color: var(--dim); font-size: 11px; font-weight: 700; }
+.board { display: grid; grid-template-columns: auto 1fr repeat(5, auto); gap: 3px 12px; align-items: center; font-size: 13.5px; font-weight: 700; }
+.board .h { color: var(--dim); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 800; }
+.board .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 900; }
+.board .r, .board .v { text-align: right; font-variant-numeric: tabular-nums; }
+.board .kd { color: var(--acc); font-weight: 900; }
+.board .me { color: var(--acc2); }
+.board .dim { opacity: 0.5; }
+#lob-rank.yes { color: #7be495; font-weight: 800; }
+
 /* ---------- Lobby ---------- */
 .codebox small { color: var(--dim); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
 .code { font-size: 30px; font-weight: 900; letter-spacing: 0.16em; color: var(--acc); line-height: 1; }
@@ -225,7 +240,7 @@ input::placeholder { color: rgba(255, 255, 255, 0.35); }
 /* ---------- Hochkant ---------- */
 @media (orientation: portrait) {
   .screen { align-items: flex-end; }
-  .panel { width: 100%; max-height: 60%; }
+  .panel, .panel.wide { width: 100%; max-height: 60%; }
   .logo { font-size: clamp(34px, 12vw, 58px); }
   #joy-zone { width: 50%; top: 40%; }
   #btn-jet { width: 96px; height: 96px; }
